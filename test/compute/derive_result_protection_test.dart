@@ -94,7 +94,7 @@ void main() {
       'strain',
       'tst_min',
     ]) {
-      out[key] = await LocalDb.metricValueOn(dayId, key);
+      out[key] = await MetricSeriesStore.valueOn(dayId, key);
     }
     return out;
   }

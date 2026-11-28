@@ -21,7 +21,7 @@ void main() {
       test(
         'phone-only ${measuredZero ? 'zero' : 'measured'} count clips retained $shape coverage without counting its old steps',
         () async {
-          expect(LocalDb.debugBandSteps, false);
+          expect(StepCoverageStore.debugBandSteps, false);
           final now = DateTime.now();
           final day = DateTime(now.year, now.month, now.day - 1);
           final end = DateTime(day.year, day.month, day.day + 1);
@@ -41,10 +41,10 @@ void main() {
             'end_ts': b,
             'steps': 9999,
             'day': dayLabelOf(day),
-            'source': LocalDb.kStepSourceBand,
+            'source': StepCoverageStore.kStepSourceBand,
           });
           final legacy = await db.query('live_coverage');
-          await LocalDb.setCursor('authored-unrelated', 'keep');
+          await CursorStore.write('authored-unrelated', 'keep');
           final asked = <(DateTime, DateTime)>[];
           final pedometer = PhonePedometer(
             stepReader: (from, to) async {
@@ -70,7 +70,7 @@ void main() {
           final phone = await db.query(
             'live_coverage',
             where: 'source = ?',
-            whereArgs: [LocalDb.kStepSourcePhone],
+            whereArgs: [StepCoverageStore.kStepSourcePhone],
             orderBy: 'start_ts',
           );
           expect(phone.first['start_ts'], lo);
@@ -80,19 +80,21 @@ void main() {
             expected,
           );
           expect(
-            (await LocalDb.resolvedStepsForDay(dayLabelOf(day))).total,
+            (await StepCoverageStore.resolvedStepsForDay(
+              dayLabelOf(day),
+            )).total,
             expected,
           );
           expect(
             await db.query(
               'live_coverage',
               where: 'source = ?',
-              whereArgs: [LocalDb.kStepSourceBand],
+              whereArgs: [StepCoverageStore.kStepSourceBand],
             ),
             legacy,
           );
-          expect(await LocalDb.getCursor('authored-unrelated'), 'keep');
-          expect(LocalDb.debugBandSteps, false);
+          expect(await CursorStore.read('authored-unrelated'), 'keep');
+          expect(StepCoverageStore.debugBandSteps, false);
         },
       );
     }
@@ -107,17 +109,17 @@ void main() {
         final lo = day.millisecondsSinceEpoch ~/ 1000;
         final hi = end.millisecondsSinceEpoch ~/ 1000;
         final id = dayLabelOf(day);
-        await LocalDb.replacePhoneCoverageForDay(
+        await StepCoverageStore.replacePhoneForDay(
           id,
           [(startTs: lo, endTs: hi, steps: 60)],
           distances: {'$lo-$hi': 1000},
         );
-        await LocalDb.setCursor('authored-retained', 'keep');
+        await CursorStore.write('authored-retained', 'keep');
         final db = await LocalDb.instance;
         final before = await db.query('live_coverage', orderBy: 'id');
         final selector = boundary == 'DELETE' ? 'OLD' : 'NEW';
         await db.execute(
-          "CREATE TRIGGER authored_phone_day_refusal BEFORE $boundary ON live_coverage WHEN $selector.source = '${LocalDb.kStepSourcePhone}' BEGIN SELECT RAISE(ABORT,'authored phone-day replacement refusal'); END",
+          "CREATE TRIGGER authored_phone_day_refusal BEFORE $boundary ON live_coverage WHEN $selector.source = '${StepCoverageStore.kStepSourcePhone}' BEGIN SELECT RAISE(ABORT,'authored phone-day replacement refusal'); END",
         );
         var reads = 0;
         final phone = PhonePedometer(
@@ -130,16 +132,19 @@ void main() {
           expect(await phone.syncDay(day), isNull);
           expect(reads, greaterThan(0));
           expect(await db.query('live_coverage', orderBy: 'id'), before);
-          expect((await LocalDb.resolvedStepsForDay(id)).total, 60);
-          expect(await LocalDb.getCursor('authored-retained'), 'keep');
+          expect((await StepCoverageStore.resolvedStepsForDay(id)).total, 60);
+          expect(await CursorStore.read('authored-retained'), 'keep');
         } finally {
           await db.execute('DROP TRIGGER authored_phone_day_refusal');
         }
         final expected = end.difference(day).inMinutes;
         expect(await phone.syncDay(day), expected);
-        expect((await LocalDb.resolvedStepsForDay(id)).total, expected);
-        expect(await LocalDb.getCursor('authored-retained'), 'keep');
-        expect(LocalDb.debugBandSteps, false);
+        expect(
+          (await StepCoverageStore.resolvedStepsForDay(id)).total,
+          expected,
+        );
+        expect(await CursorStore.read('authored-retained'), 'keep');
+        expect(StepCoverageStore.debugBandSteps, false);
       },
     );
   }

@@ -165,7 +165,7 @@ void main() {
         // ignore: avoid_print
         print('[mt12] ${p.basename(src)} dyn_accel_g populated=$stamped');
 
-        final health = await LocalDb.schemaHealth();
+        final health = await DiagnosticsStore.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');
       },
       timeout: const Timeout(Duration(minutes: 10)),

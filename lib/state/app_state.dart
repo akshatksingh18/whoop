@@ -505,7 +505,7 @@ class AppState extends ChangeNotifier {
     phoneStepsToday = 0;
     _phoneStepsDay = null;
     try {
-      await LocalDb.clearPhoneCoverage();
+      await StepCoverageStore.clearPhone();
     } catch (e) {
       debugPrint('[phone_steps] clear: $e');
     }
@@ -664,7 +664,7 @@ class AppState extends ChangeNotifier {
     if (!phoneStepsEnabled) return;
     try {
       final day = todayLabel();
-      final n = await LocalDb.phoneStepsForDay(day);
+      final n = await StepCoverageStore.phoneStepsForDay(day);
       if (n != phoneStepsToday || day != _phoneStepsDay) {
         phoneStepsToday = n;
         _phoneStepsDay = day;
@@ -1102,7 +1102,7 @@ class AppState extends ChangeNotifier {
       // before the HISTORY_END ACK, and a reader to seed the offload frontier
       // from the durable high-water on (re)connect.
       onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-          LocalDb.commitSyncBatch(
+          SyncLedgerStore.commitBatch(
             raws,
             samples,
             trimToken: trimTokenHex,
@@ -1112,7 +1112,7 @@ class AppState extends ChangeNotifier {
           ),
       // Pre-setup fallback only: the drain path archives inside commitSyncBatch.
       onArchiveRecord: LocalDb.archiveRawRecord,
-      cursorReader: LocalDb.getCursorInt,
+      cursorReader: CursorStore.readInt,
       // Debounced compute trigger: with continuous listening there's no discrete
       // "sync done", so the engine coalesces stored-record bursts and fires this
       // once a burst goes quiet. Light pass = freshness-first (TODAY when data has
@@ -1329,7 +1329,7 @@ class AppState extends ChangeNotifier {
             // row lands, not only when the whole pass ends — a cancelled
             // background pass skipped it and Today kept saying "still being
             // worked out" about a night that had already committed.
-            await LocalDb.refreshComputeFreshness();
+            await ComputeFreshnessStore.refresh();
             bumpInsights();
           } else if (index == total || index == 1 || index % 3 == 0) {
             notifyListeners();
@@ -1362,7 +1362,7 @@ class AppState extends ChangeNotifier {
       } catch (e) {
         _log('[derive] session rescore failed: $e');
       }
-      await LocalDb.refreshComputeFreshness();
+      await ComputeFreshnessStore.refresh();
       bumpInsights();
       notifyListeners(); // screens re-fetch from the derived store
       // A heavy finalize is where a freshly-closed sleep window + recovery for a
@@ -1403,8 +1403,8 @@ class AppState extends ChangeNotifier {
   /// shrinks below its all-time high-water mark, so an install that once let a
   /// substrate backlog build (or that went through v39's two shadow-copy
   /// migrations) keeps that size forever even though the space is unused. See
-  /// [LocalDb.vacuumIfBloated] for why this is a one-off VACUUM and not
-  /// `auto_vacuum`.
+  /// [StorageRetentionStore.vacuumIfBloated] for why this is a one-off VACUUM
+  /// and not `auto_vacuum`.
   ///
   /// A VACUUM rewrites the whole file under an exclusive lock and wants ~2× the
   /// file size free on disk, so it runs at exactly one moment: right after a
@@ -1418,7 +1418,7 @@ class AppState extends ChangeNotifier {
     // Out of disk, or another connection holds a lock: storage hygiene that
     // nothing user-facing depends on, and the next launch tries again.
     await _bestEffort('[db] vacuum skipped', () async {
-      final freed = await LocalDb.vacuumIfBloated();
+      final freed = await StorageRetentionStore.vacuumIfBloated();
       if (freed > 0) {
         _log('[db] vacuum returned ${freed >> 20} MB to the filesystem');
       }
@@ -1532,7 +1532,7 @@ class AppState extends ChangeNotifier {
         initial: (user?['step_goal'] as num?)?.toInt(),
       );
       final goal = StepGoals.targetOn(ledger, date);
-      final measured = await LocalDb.resolvedStepsForDay(date);
+      final measured = await StepCoverageStore.resolvedStepsForDay(date);
       if (goal == null || goal <= 0 || measured.total < goal) return;
       await StepGoals.qualifying(initial: goal);
     } catch (_) {
@@ -1570,7 +1570,7 @@ class AppState extends ChangeNotifier {
           }
         },
       );
-      await LocalDb.refreshComputeFreshness();
+      await ComputeFreshnessStore.refresh();
       bumpInsights();
       return n;
     } catch (e) {
@@ -1686,7 +1686,7 @@ class AppState extends ChangeNotifier {
         // pass is ours.
         await _derive.run(_profile, force: true);
         if (_disposed || _resetting) return;
-        await LocalDb.refreshComputeFreshness();
+        await ComputeFreshnessStore.refresh();
         if (_disposed || _resetting) return;
         bumpInsights();
       } on DeriveCancelled catch (e) {
@@ -1743,7 +1743,9 @@ class AppState extends ChangeNotifier {
         _napDays.clear();
         final stamps = {
           for (final d in days)
-            d: (await LocalDb.baseline('nap_dirty:$d'))?['payload_json'],
+            d: (await MetricSeriesStore.baseline(
+              'nap_dirty:$d',
+            ))?['payload_json'],
         };
         reanalyzing = true;
         notifyListeners();
@@ -1758,7 +1760,7 @@ class AppState extends ChangeNotifier {
           if (result == 'failed') {
             throw StateError('Nap calculation failed');
           }
-          await LocalDb.refreshComputeFreshness();
+          await ComputeFreshnessStore.refresh();
           final db = await LocalDb.instance;
           for (final d in days) {
             await db.delete(
@@ -1803,7 +1805,7 @@ class AppState extends ChangeNotifier {
     // became durable, and it is the only path that sees every commit.
     _markSyncActivity();
     unawaited(() async {
-      final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
+      final recTsHw = await CursorStore.readInt('rec_ts_hw');
       if (recTsHw != null && recTsHw > (_lastRecTs ?? 0)) {
         _lastRecTs = recTsHw;
       }
@@ -1963,8 +1965,8 @@ class AppState extends ChangeNotifier {
     // every record commitSyncBatch durably persists, decoded_onehz-eligible
     // or not, so it's the honest frontier (same one RecordGate/backfill
     // policies already trust).
-    _lastRecTs = await LocalDb.getCursorInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
-    await LocalDb.refreshComputeFreshness();
+    _lastRecTs = await CursorStore.readInt('rec_ts_hw') ?? lastSynced?.tsEpoch;
+    await ComputeFreshnessStore.refresh();
     _savedAlarm = (await SharedPreferences.getInstance()).getInt('alarm_epoch');
     // DB integrity check — see _checkSchemaHealth doc. Best-effort, non-blocking.
     unawaited(_checkSchemaHealth());
@@ -2109,7 +2111,7 @@ class AppState extends ChangeNotifier {
   /// is no rollup, which every consumer reads as an honest silence.
   Future<List<Map<String, dynamic>>> _readRecentDays() async {
     try {
-      final cd = await LocalDb.baseline('crossday');
+      final cd = await MetricSeriesStore.baseline('crossday');
       final m = cd?['payload_json'];
       if (m is! String) return const [];
       final j = jsonDecode(m);
@@ -2142,7 +2144,7 @@ class AppState extends ChangeNotifier {
     if (logLines.length > 200) logLines.removeLast();
   }
 
-  /// `LocalDb.schemaHealth()` (real `PRAGMA integrity_check` + schema
+  /// `DiagnosticsStore.schemaHealth()` (real `PRAGMA integrity_check` + schema
   /// presence check) was previously fully implemented but never called
   /// anywhere in the app — corruption or schema drift could accumulate
   /// silently forever with nothing to notice it. Wired here: once at
@@ -2164,7 +2166,7 @@ class AppState extends ChangeNotifier {
       // The result is LOGGED, not stored: the field that used to hold it had
       // no reader, and a failing integrity check needs a human looking at the
       // log, not a widget nobody built.
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       if (health['ok'] != true) {
         _log('[db] schemaHealth FAILED: $health');
       }
@@ -2762,7 +2764,7 @@ class AppState extends ChangeNotifier {
       // touching decoded_onehz, and this "did we make progress" check must
       // not mistake that for a stuck drain (spin-guard/backlogRemains below
       // read frontierAfter too).
-      final frontierBefore = await LocalDb.getCursorInt('rec_ts_hw');
+      final frontierBefore = await CursorStore.readInt('rec_ts_hw');
       if (!current()) break;
       final recordsBefore = engine.historyRecordCount;
       final kicked = kickFirst || i > 0 || !engine.offloadActive;
@@ -2776,7 +2778,7 @@ class AppState extends ChangeNotifier {
       );
       last = report;
       if (!current()) break;
-      final frontierAfter = await LocalDb.getCursorInt('rec_ts_hw');
+      final frontierAfter = await CursorStore.readInt('rec_ts_hw');
       if (!current()) break;
       // Refresh the freshness signal the "last data" banner reads from EVERY
       // burst session, not just at app boot. `_lastRecTs` was previously only
@@ -4019,9 +4021,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> _refreshNightlyRhr() async {
     try {
-      _observedCeilingBpm = (await LocalDb.observedHrCeiling())?.bpm;
-      _rhr28 = await LocalDb.trailingSeriesValues('rhr', 28);
-      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      _observedCeilingBpm = (await SessionStore.observedHrCeiling())?.bpm;
+      _rhr28 = await MetricSeriesStore.trailingValues('rhr', 28);
+      final vals = await MetricSeriesStore.trailingValues('rhr', 7);
       if (vals.isEmpty) return;
       _nightlyRhr = vals.last;
       // Adopt it into a session that started before this read completed, but
@@ -4099,7 +4101,7 @@ class AppState extends ChangeNotifier {
     final start = DateTime.now();
     final id = workoutId ?? 'w${start.millisecondsSinceEpoch}';
     try {
-      _workoutStartWrite = LocalDb.putSession({
+      _workoutStartWrite = SessionStore.put({
         'id': id,
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'end_ts': null,
@@ -4230,7 +4232,7 @@ class AppState extends ChangeNotifier {
     // workout, or a retry after a permission fix) — see RouteTracker._seq.
     var firstSeq = 0;
     try {
-      firstSeq = await LocalDb.nextRouteSeq(id);
+      firstSeq = await WorkoutRouteStore.nextSeq(id);
     } catch (_) {
       // Unknown is not zero: a later seq can only cost a gap in numbering,
       // while 0 would overwrite whatever is stored.
@@ -4267,8 +4269,9 @@ class AppState extends ChangeNotifier {
     }
     final tracker = RouteTracker(
       initialPoints: savedRoute?.points ?? const [],
-      sink: (batch) =>
-          LocalDb.appendRoutePoints(id, [for (final p in batch) p.toRow(id)]),
+      sink: (batch) => WorkoutRouteStore.appendPoints(id, [
+        for (final p in batch) p.toRow(id),
+      ]),
       zoneNow: () => _zoneFor(activeWorkout?.currentHr ?? 0),
       firstSeq: firstSeq,
       onPoint: (point) {
@@ -4340,7 +4343,7 @@ class AppState extends ChangeNotifier {
       // (CodeRabbit flagged the race). Bail rather than clobber a real,
       // just-started activeWorkout and leak its timer.
       if (_disposed || _resetting || activeWorkout != null) return;
-      final rows = await LocalDb.liveSessions();
+      final rows = await SessionStore.live();
       // RE-CHECK AFTER THE AWAIT. This is kicked unawaited from _init(), one
       // line before `initialized = true` makes the shell interactive — so the
       // user can tap "Start workout" INSIDE this DB round-trip. The pre-await
@@ -4435,7 +4438,7 @@ class AppState extends ChangeNotifier {
           // like any other finished workout.
           final reconciledEndTs = nowMs ~/ 1000;
           final hadRealEnd = row['end_ts'] != null;
-          await LocalDb.putSession({
+          await SessionStore.put({
             ...row,
             'status': 'done',
             'end_ts': row['end_ts'] ?? reconciledEndTs,
@@ -4535,7 +4538,7 @@ class AppState extends ChangeNotifier {
       // "unknown".
       final bandFamily =
           engine.linkDeviceFamily ??
-          ((await LocalDb.session(id))?['device_family'] as String?);
+          ((await SessionStore.byId(id))?['device_family'] as String?);
       final savedZones = legacyTrace
           ? clock.results['zones'] as List?
           : zoneMin;
@@ -4584,7 +4587,7 @@ class AppState extends ChangeNotifier {
     // so calling stopWorkout() again is a clean retry — and the exception
     // propagates instead of being reported as a finished, saved session.
     try {
-      await LocalDb.putSession(sessionRow);
+      await SessionStore.put(sessionRow);
       // The session is durable — tell the screens that read sessions. Without
       // this the Workout tab, which loads once and caches, showed no trace of
       // the workout you had just finished in History, "This week", "Tracked"

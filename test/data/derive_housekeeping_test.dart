@@ -60,12 +60,12 @@ void main() {
   });
 
   test('opening a store drops the retired rollup-input row', () async {
-    await LocalDb.putBaseline('crossday_input', '{"days":[]}');
-    await LocalDb.putBaseline('crossday_status', '{"kind":"ready"}');
+    await MetricSeriesStore.putBaseline('crossday_input', '{"days":[]}');
+    await MetricSeriesStore.putBaseline('crossday_status', '{"kind":"ready"}');
     await LocalDb.close();
-    expect(await LocalDb.baseline('crossday_input'), isNull);
+    expect(await MetricSeriesStore.baseline('crossday_input'), isNull);
     expect(
-      (await LocalDb.baseline('crossday_status'))!['payload_json'],
+      (await MetricSeriesStore.baseline('crossday_status'))!['payload_json'],
       '{"kind":"ready"}',
     );
   });

@@ -44,8 +44,8 @@ void main() {
     await prefs.setBool('notif_quiet_enabled', false);
     await prefs.setString('authored-unrelated', 'retain');
     final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.setCursor('rec_ts_hw', '${now - 96 * 3600}');
-    await LocalDb.setCursor('authored-recovery', 'retain');
+    await CursorStore.write('rec_ts_hw', '${now - 96 * 3600}');
+    await CursorStore.write('authored-recovery', 'retain');
     cursors = await (await LocalDb.instance).query('sync_cursor');
     debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
     IOSFlutterLocalNotificationsPlugin.registerWith();

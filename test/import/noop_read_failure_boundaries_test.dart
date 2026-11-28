@@ -139,7 +139,7 @@ void main() {
     }
     await source.close();
     bytes = await input.readAsBytes();
-    await LocalDb.setCursor('authored_recovery', 'keep');
+    await CursorStore.write('authored_recovery', 'keep');
   });
   tearDown(() {
     databaseFactory = previous;
@@ -194,7 +194,7 @@ void main() {
           expect(factory.faulted, {'rrInterval'});
           expect(factory.closes, 1);
           expect(await input.readAsBytes(), bytes);
-          expect(await LocalDb.getCursor('authored_recovery'), 'keep');
+          expect(await CursorStore.read('authored_recovery'), 'keep');
           expect(await (await LocalDb.instance).query('day_result'), isEmpty);
           factory.enabled = false;
           final retry = CaptureEngine();
@@ -254,7 +254,7 @@ void main() {
         expect(engine.inputs, isEmpty);
         expect(engine.finalizations, 0);
         expect(await input.readAsBytes(), bytes);
-        expect(await LocalDb.getCursor('authored_recovery'), 'keep');
+        expect(await CursorStore.read('authored_recovery'), 'keep');
         factory.enabled = false;
         expect(
           (await NoopBackupImporter.importDatabase(

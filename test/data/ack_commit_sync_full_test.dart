@@ -76,7 +76,7 @@ void main() {
       );
 
       syncStmts.clear();
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [recAt(5001)],
         <Sample?>[Sample(tsEpoch: 1750005001, counter: 5001, hr: 60)],
         trimToken: 'deadbeef',
@@ -100,7 +100,7 @@ void main() {
     // raws non-empty but samples empty → samples[i] throws RangeError INSIDE the
     // db.transaction, after FULL is set. The finally must still restore NORMAL.
     await expectLater(
-      LocalDb.commitSyncBatch([recAt(6001)], const <Sample?>[]),
+      SyncLedgerStore.commitBatch([recAt(6001)], const <Sample?>[]),
       throwsA(isA<RangeError>()),
     );
 

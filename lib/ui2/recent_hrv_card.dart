@@ -22,7 +22,7 @@ export '../compute/readiness_explain.dart' show RecentHrvView;
 /// Null when there is no night to show.
 Future<RecentHrvView?> loadRecentHrv(String? day) async {
   final series = [
-    for (final r in await LocalDb.metricSeries(
+    for (final r in await MetricSeriesStore.series(
       'ln_rmssd_v2',
       measuredOnly: true,
     ))

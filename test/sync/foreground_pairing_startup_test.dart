@@ -67,7 +67,7 @@ void main() {
       'cold foreground pairing retains its saved identity through refusal: $refused',
       () async {
         await PairedDevice.save(Peripheral.id.str, null, generation: 'gen4');
-        await LocalDb.setCursor('authored-retained-history', 'keep');
+        await CursorStore.write('authored-retained-history', 'keep');
         final db = await LocalDb.instance;
         peripheral.mode = refused ? 'connect-refused' : 'ready';
         final app = AppState(isIOS: true);
@@ -105,7 +105,7 @@ void main() {
             [Peripheral.id.str, if (refused) Peripheral.id.str],
           );
           expect((await PairedDevice.load())?.remoteId, Peripheral.id.str);
-          expect(await LocalDb.getCursor('authored-retained-history'), 'keep');
+          expect(await CursorStore.read('authored-retained-history'), 'keep');
           expect(await db.query('day_result'), isEmpty);
           expect(await db.query('decoded_onehz'), isEmpty);
         } finally {

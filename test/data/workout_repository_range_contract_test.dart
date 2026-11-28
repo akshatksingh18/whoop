@@ -19,7 +19,7 @@ void main() {
         final expectedDays = range == 'week' ? [6] : [6, 8, 89];
         for (final age in [6, 8, 89, 91]) {
           final start = now - age * 86400;
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-range-$age',
             'start_ts': start,
             'end_ts': start + 20 * 60,

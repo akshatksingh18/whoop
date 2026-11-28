@@ -48,7 +48,7 @@ void main() {
   });
   tearDownAll(LocalDb.close);
   Future<void> seed(int lo, int hi, int hr) async {
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [
         for (var at = lo; at < hi; at++)
           RawRecord(
@@ -80,7 +80,7 @@ void main() {
     String type = 'weight_training',
     int? end,
     bool fabricated = false,
-  }) => LocalDb.putSession({
+  }) => SessionStore.put({
     'id': 'synthetic-session',
     'start_ts': start,
     'end_ts': end ?? start + 180,
@@ -96,17 +96,17 @@ void main() {
     () async {
       await row();
       await seed(start, start + 180, 145);
-      await LocalDb.setCursor('rec_ts_hw', '${start + 180}');
+      await CursorStore.write('rec_ts_hw', '${start + 180}');
       expect(await repo.rescoreRecentSessions(), 1);
       expect(
-        (await LocalDb.session('synthetic-session'))!['calories'],
+        (await SessionStore.byId('synthetic-session'))!['calories'],
         closeTo(2.5 * 75 * 3 / 60, .0001),
       );
       changes = 0;
       // This is the narrow writer used by ActivitySummary's Change activity.
-      await LocalDb.setSessionType('synthetic-session', 'bodyweight');
+      await SessionStore.setType('synthetic-session', 'bodyweight');
       expect(await repo.rescoreRecentSessions(), 1);
-      final saved = (await LocalDb.session('synthetic-session'))!;
+      final saved = (await SessionStore.byId('synthetic-session'))!;
       expect(saved['calories'], closeTo(2 * 75 * 3 / 60, .0001));
       expect(saved['calories_basis'], kCaloriesBasisActive);
       expect(changes, 1);
@@ -118,7 +118,7 @@ void main() {
     () async {
       await row();
       await seed(start, start + 180, 145);
-      await LocalDb.setCursor('rec_ts_hw', '${start + 180}');
+      await CursorStore.write('rec_ts_hw', '${start + 180}');
       expect(await repo.rescoreRecentSessions(), 1);
       changes = 0;
       expect(await repo.rescoreRecentSessions(), 0);
@@ -133,12 +133,12 @@ void main() {
       await seed(start, start + 60, 110);
       expect(await repo.rescoreRecentSessions(), 1);
       expect(
-        (await LocalDb.session('synthetic-session'))!['trace_samples'],
+        (await SessionStore.byId('synthetic-session'))!['trace_samples'],
         60,
       );
       await seed(start + 60, start + 180, 170);
       expect(await repo.rescoreRecentSessions(), 1);
-      final saved = (await LocalDb.session('synthetic-session'))!;
+      final saved = (await SessionStore.byId('synthetic-session'))!;
       expect(saved['trace_samples'], 180);
       expect(saved['avg_hr'], 150);
     },
@@ -149,7 +149,7 @@ void main() {
     () async {
       await row();
       await seed(start, start + 180, 110);
-      await LocalDb.setCursor('rec_ts_hw', '${start + 180}');
+      await CursorStore.write('rec_ts_hw', '${start + 180}');
       await repo.rescoreRecentSessions();
       final earlier = start - 60;
       await repo.setWorkoutWindow(
@@ -160,7 +160,7 @@ void main() {
       // A later import supplies the previously absent beginning of the new window.
       await seed(earlier, start, 170);
       expect(await repo.rescoreRecentSessions(), 1);
-      final saved = (await LocalDb.session('synthetic-session'))!;
+      final saved = (await SessionStore.byId('synthetic-session'))!;
       expect(saved['start_ts'], earlier);
       expect(saved['end_ts'], start + 180);
       expect(saved['trace_samples'], 240);
@@ -171,10 +171,10 @@ void main() {
   test('a live session becomes scoreable after its finish commits', () async {
     await row(status: 'live');
     await seed(start, start + 180, 145);
-    await LocalDb.setCursor('rec_ts_hw', '${start + 180}');
+    await CursorStore.write('rec_ts_hw', '${start + 180}');
     expect(await repo.rescoreRecentSessions(), 0);
     expect(
-      (await LocalDb.session('synthetic-session'))!['trace_samples'],
+      (await SessionStore.byId('synthetic-session'))!['trace_samples'],
       isNull,
     );
     await db.update(
@@ -184,14 +184,17 @@ void main() {
       whereArgs: ['synthetic-session'],
     );
     expect(await repo.rescoreRecentSessions(), 1);
-    expect((await LocalDb.session('synthetic-session'))!['trace_samples'], 180);
+    expect(
+      (await SessionStore.byId('synthetic-session'))!['trace_samples'],
+      180,
+    );
   });
 
   test('a fabricated end cannot acquire a physiological score', () async {
     await row(fabricated: true);
     await seed(start, start + 180, 145);
     expect(await repo.rescoreRecentSessions(), 0);
-    final saved = (await LocalDb.session('synthetic-session'))!;
+    final saved = (await SessionStore.byId('synthetic-session'))!;
     expect(saved['strain'], isNull);
     expect(saved['calories'], isNull);
     expect(saved['trace_samples'], isNull);
@@ -203,13 +206,16 @@ void main() {
     () async {
       await row();
       await seed(start, start + 180, 145);
-      await LocalDb.setCursor('rec_ts_hw', '${start + 180}');
+      await CursorStore.write('rec_ts_hw', '${start + 180}');
       await db.execute(
         'ALTER TABLE decoded_onehz RENAME TO synthetic_hidden_hr',
       );
       try {
         expect(await repo.rescoreRecentSessions(), 0);
-        expect((await LocalDb.session('synthetic-session'))!['strain'], isNull);
+        expect(
+          (await SessionStore.byId('synthetic-session'))!['strain'],
+          isNull,
+        );
       } finally {
         await db.execute(
           'ALTER TABLE synthetic_hidden_hr RENAME TO decoded_onehz',
@@ -217,7 +223,7 @@ void main() {
       }
       expect(await repo.rescoreRecentSessions(), 1);
       expect(
-        (await LocalDb.session('synthetic-session'))!['trace_samples'],
+        (await SessionStore.byId('synthetic-session'))!['trace_samples'],
         180,
       );
     },
@@ -235,7 +241,7 @@ void main() {
       );
       await seed(start, start + 180, 145);
       await repo.rescoreRecentSessions();
-      final saved = (await LocalDb.session('synthetic-session'))!;
+      final saved = (await SessionStore.byId('synthetic-session'))!;
       expect(saved['private'], 1);
       expect(saved['rpe'], 8.5);
       expect(saved['hrr_bpm'], 24);
@@ -245,7 +251,7 @@ void main() {
   test('a closed session with no retained recordings stays unscored', () async {
     await row();
     expect(await repo.rescoreRecentSessions(), 0);
-    final saved = (await LocalDb.session('synthetic-session'))!;
+    final saved = (await SessionStore.byId('synthetic-session'))!;
     expect(saved['calories'], isNull);
     expect(saved['strain'], isNull);
     expect(changes, 0);

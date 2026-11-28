@@ -296,7 +296,7 @@ void main() {
     (t) async {
       final start = DateTime.now().subtract(const Duration(days: 1));
       await t.runAsync(() async {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'private-lift',
           'type': 'weightlifting',
           'status': 'done',
@@ -464,7 +464,7 @@ void main() {
       final start =
           DayClock.onDate('2026-09-01', 0, 30).millisecondsSinceEpoch ~/ 1000;
       await t.runAsync(
-        () => LocalDb.putSession({
+        () => SessionStore.put({
           'id': 'travel-session',
           'type': 'walking',
           'status': 'done',
@@ -790,7 +790,7 @@ void main() {
       try {
         await CalculationStore.write('synthetic.config', 'saved');
         expect(
-          (await LocalDb.baseline(
+          (await MetricSeriesStore.baseline(
             'calculation:synthetic.config',
           ))!['payload_json'],
           'saved',

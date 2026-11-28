@@ -55,7 +55,7 @@ void main() {
         kind: 'capture',
         status: 'partial',
       );
-      await LocalDb.putComputeFreshness(
+      await ComputeFreshnessStore.put(
         'today',
         jsonEncode({
           'activity_computed_at': DateTime.now().millisecondsSinceEpoch - 60000,

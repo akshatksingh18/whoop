@@ -82,7 +82,7 @@ void main() {
           final db = await LocalDb.instance;
           final priorTravel =
               '{"offset_min":${DateTime.now().timeZoneOffset.inMinutes}}';
-          await LocalDb.putBaseline('tz_travel_guard', priorTravel);
+          await MetricSeriesStore.putBaseline('tz_travel_guard', priorTravel);
           await db.execute(
             "CREATE TRIGGER synthetic_derive_write_refusal BEFORE INSERT ON $table "
             "BEGIN SELECT RAISE(ABORT,'synthetic derive write refusal'); END",
@@ -126,7 +126,9 @@ void main() {
           );
           expect(await LocalDb.lastDecodedRecTs(), ts);
           expect(
-            (await LocalDb.baseline('tz_travel_guard'))?['payload_json'],
+            (await MetricSeriesStore.baseline(
+              'tz_travel_guard',
+            ))?['payload_json'],
             priorTravel,
             reason:
                 'a failed write must not damage the existing timezone record',
@@ -194,7 +196,7 @@ void main() {
           await expectLater(job, throwsA(isA<DeriveCancelled>()));
         }
         expect(await LocalDb.dayResult(day), isNull);
-        expect(await LocalDb.getCursor('baseline_sig'), isNull);
+        expect(await CursorStore.read('baseline_sig'), isNull);
         expect(engine.running, isFalse);
         expect(
           await LocalDb.lastDecodedRecTs(),
@@ -235,7 +237,7 @@ void main() {
           reason: 'the test must reach the real first compute stage',
         );
         expect(await LocalDb.dayResult(day), isNull);
-        expect(await LocalDb.wakeDayFeatures(day), isNull);
+        expect(await SleepIntermediateStore.wakeFeatures(day), isNull);
         expect(engine.running, isFalse);
         expect(await LocalDb.lastDecodedRecTs(), ts);
       },
@@ -246,7 +248,7 @@ void main() {
       'rollup cancellation at $boundary preserves its previous status instead of stamping success/failure',
       () async {
         const previous = '{"kind":"ready","synthetic":true}';
-        await LocalDb.putBaseline('crossday_status', previous);
+        await MetricSeriesStore.putBaseline('crossday_status', previous);
         var stopped = false;
         engine = DerivationEngine(
           log: (line) {
@@ -265,7 +267,9 @@ void main() {
         await expectLater(job, throwsA(isA<DeriveCancelled>()));
         expect(stopped, isTrue);
         expect(
-          (await LocalDb.baseline('crossday_status'))?['payload_json'],
+          (await MetricSeriesStore.baseline(
+            'crossday_status',
+          ))?['payload_json'],
           previous,
         );
         expect(engine.running, isFalse);

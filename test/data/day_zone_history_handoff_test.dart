@@ -20,7 +20,7 @@ void main() {
         final firstObservation = seconds(DateTime.utc(2021, 4, 6, 10));
         final arrival = seconds(DateTime.utc(2021, 4, 6, 17));
         const id = 'authored-before-zone-observation';
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': 'walking',
           'status': 'done',
@@ -29,7 +29,7 @@ void main() {
           'source': 'manual',
           'created_at': oldStart * 1000,
         });
-        final saved = await LocalDb.session(id);
+        final saved = await SessionStore.byId(id);
         final observations = [
           ZoneChange(firstObservation, 'Europe/London'),
           ZoneChange(arrival, 'Asia/Tokyo'),
@@ -55,11 +55,11 @@ void main() {
         expect(DayClock.zoneAt(arrival), 'Asia/Tokyo');
         expect(DayClock.at(arrival - 1)?.endSec, arrival);
         expect(DayClock.at(arrival)?.startSec, arrival);
-        expect(await LocalDb.session(id), saved);
+        expect(await SessionStore.byId(id), saved);
         await DayZoneStore.observe(observations, throughSec: arrival + 1);
         expect(await db.query('zone_change', orderBy: 'at_ts'), changes);
         expect(await db.query('day_zone', orderBy: 'start_ts'), zones);
-        expect(await LocalDb.session(id), saved);
+        expect(await SessionStore.byId(id), saved);
       },
     );
   }

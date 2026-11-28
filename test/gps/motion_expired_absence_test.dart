@@ -32,7 +32,7 @@ void main() {
         final from = DateTime.now().subtract(Duration(days: expired ? 8 : 3));
         final to = from.add(const Duration(minutes: 2));
         final cache = key('authored-session', from, to);
-        await LocalDb.setCursor('authored-history', 'retained');
+        await CursorStore.write('authored-history', 'retained');
         Object reply = -1;
         final calls = <MethodCall>[];
         messenger.setMockMethodCallHandler(channel, (call) async {
@@ -64,7 +64,7 @@ void main() {
           expect(calls, hasLength(2));
           expect(await CalculationStore.read(cache), isNotNull);
         }
-        expect(await LocalDb.getCursor('authored-history'), 'retained');
+        expect(await CursorStore.read('authored-history'), 'retained');
         expect(await (await LocalDb.instance).query('day_result'), isEmpty);
       },
     );

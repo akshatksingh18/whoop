@@ -397,7 +397,7 @@ void main() {
           expect(app.busy, false);
           expect(app.deriving, false);
           expect(app.derivePending, !refused);
-          final jobs = await LocalDb.computeJobs(state: 'queued');
+          final jobs = await ComputeJobStore.jobs(state: 'queued');
           expect(jobs, refused ? isEmpty : hasLength(1));
           if (refused) {
             expect(
@@ -437,7 +437,7 @@ void main() {
         await app.debugReconnect();
         List<Map<String, dynamic>> jobs = [];
         for (var i = 0; i < 200; i++) {
-          jobs = await LocalDb.computeJobs(state: 'queued');
+          jobs = await ComputeJobStore.jobs(state: 'queued');
           if (jobs.isNotEmpty) break;
           await Future<void>.delayed(const Duration(milliseconds: 5));
         }
@@ -450,7 +450,7 @@ void main() {
         expect(app.deriving, false);
         // Acknowledge the authored worker boundary without running a night derive.
         // The next reconnect must still honor the earlier heavy-request timestamp.
-        await LocalDb.completeComputeJob(jobs.single['id'] as String);
+        await ComputeJobStore.complete(jobs.single['id'] as String);
       }
       expect(await (await LocalDb.instance).query('day_result'), isEmpty);
       await app.endSession();
@@ -779,7 +779,7 @@ void main() {
       () async {
         final start =
             DateTime.now().subtract(age).millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'synthetic-orphan',
           'type': 'swimming',
           'start_ts': start,
@@ -802,7 +802,7 @@ void main() {
         try {
           expect(app.activeWorkout, isNull);
           expect(
-            (await LocalDb.session('synthetic-orphan'))!['status'],
+            (await SessionStore.byId('synthetic-orphan'))!['status'],
             'live',
           );
           expect(WorkoutClock.current, isNull);

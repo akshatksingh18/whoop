@@ -383,7 +383,7 @@ void main() {
         at: start.add(const Duration(minutes: 1)),
       );
       w.finish(start.add(const Duration(minutes: 4)));
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'authored-current',
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'end_ts': w.endedAt!.millisecondsSinceEpoch ~/ 1000,
@@ -393,7 +393,7 @@ void main() {
         'created_at': start.millisecondsSinceEpoch,
       });
       await LiftLogDb.save(w);
-      final parent = await LocalDb.session('authored-current');
+      final parent = await SessionStore.byId('authored-current');
       final app = AppState.forTesting();
       addTearDown(app.dispose);
       final revision = app.insightsRevision.value;
@@ -431,7 +431,7 @@ void main() {
       // The saved fix tells every open tab through the app's insights bump.
       expect(app.insightsRevision.value, revision + 1);
       expect(
-        await t.runAsync(() => LocalDb.session('authored-current')),
+        await t.runAsync(() => SessionStore.byId('authored-current')),
         parent,
       );
     },

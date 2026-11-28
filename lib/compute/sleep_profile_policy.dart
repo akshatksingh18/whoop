@@ -142,7 +142,7 @@ abstract final class SleepProfilePolicy {
   // still clobber each other.
   //
   // The read-modify-write is instead done inside one exclusive SQLite
-  // transaction — see `LocalDb.updateBaseline` and
+  // transaction — see `MetricSeriesStore.updateBaseline` and
   // `DerivationEngine._foldObservationIntoProfile`. SQLite's write lock is
   // cross-connection, so it holds across isolates AND across processes.
   //

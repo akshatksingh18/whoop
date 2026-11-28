@@ -521,7 +521,8 @@ void main() {
       final engine = DerivationEngine();
       Future<num> need() async {
         final value = jsonDecode(
-          (await LocalDb.baseline('crossday'))!['payload_json'] as String,
+          (await MetricSeriesStore.baseline('crossday'))!['payload_json']
+              as String,
         );
         return value['sleep_coach']['need']['value']['need_sec'] as num;
       }
@@ -564,7 +565,7 @@ void main() {
     );
     await LocalDb.deleteDays({today});
     expect(await SleepNapStore.correctionDays(), isEmpty);
-    expect(await LocalDb.baseline('nap_proposals:$today'), isNull);
+    expect(await MetricSeriesStore.baseline('nap_proposals:$today'), isNull);
   });
   testWidgets(
     'remove restore and reopen never wait for background calculations',

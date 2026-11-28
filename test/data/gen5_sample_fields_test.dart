@@ -359,7 +359,7 @@ void main() {
     expect(fresh['on_wrist'], 0);
     expect(fresh['hr_alt'], isNull);
 
-    expect((await LocalDb.schemaHealth())['ok'], isTrue);
+    expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
   });
 
   // v35. The columns were always the right SHAPE (nullable, no DEFAULT); what
@@ -465,7 +465,7 @@ void main() {
       expect(s.hrValid, isNull);
       expect(s.hr, 61);
 
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
 
       // Idempotent: reopening runs no migration and changes nothing.
       await LocalDb.close();

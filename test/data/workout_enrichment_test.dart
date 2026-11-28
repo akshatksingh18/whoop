@@ -64,7 +64,7 @@ Future<void> _insertHr(
   // family)`, so unstamped rows have no ceiling and draw no zone bands.
   // `commitSyncBatch` is the seam that carries the stamp; `insertRecordsBatch`
   // has none.
-  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
+  await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
 }
 
 void main() {
@@ -120,7 +120,7 @@ void main() {
   test(
     'getWorkout joins decoded_onehz: curve, stats, zones, drift, HRR',
     () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'w-enrich',
         'start_ts': start,
         'end_ts': end,
@@ -190,7 +190,7 @@ void main() {
   test(
     'getWorkout without any joined HR keeps the honest summary shape',
     () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'w-empty',
         'start_ts': 500000,
         'end_ts': 500300,
@@ -370,7 +370,7 @@ void main() {
   test('the session trace outlives the substrate (TS-01)', () async {
     const s = 1200000;
     const e = 1200600;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'w-frozen',
       'start_ts': s,
       'end_ts': e,
@@ -391,8 +391,8 @@ void main() {
 
     // The band's 1 Hz window ages out — which is what used to blank the whole
     // chart half of this screen on day four, permanently.
-    await LocalDb.pruneDecodedBeforeRecTs(e + 100000);
-    expect(await LocalDb.hrSamplesInRange(s, e), isEmpty);
+    await StorageRetentionStore.pruneDecodedBefore(e + 100000);
+    expect(await SessionStore.hrSamplesInRange(s, e), isEmpty);
 
     final frozen = await repo.getWorkout('w-frozen');
     expect(frozen['hr'], live['hr']);
@@ -406,7 +406,7 @@ void main() {
 
     // A session that aged out before the column existed gets NO trace — never
     // a reconstructed one.
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'w-pre-trace',
       'start_ts': s - 10000,
       'end_ts': s - 9400,

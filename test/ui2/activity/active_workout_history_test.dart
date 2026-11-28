@@ -56,7 +56,7 @@ void main() {
             : now.subtract(const Duration(minutes: 40));
         final start = savedStart.millisecondsSinceEpoch ~/ 1000;
         await t.runAsync(() async {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'saved-walk',
             'type': 'walking',
             'start_ts': start,
@@ -75,7 +75,7 @@ void main() {
           );
         });
         final activeRow = await t.runAsync(
-          () => LocalDb.session('active-yoga'),
+          () => SessionStore.byId('active-yoga'),
         );
 
         await localizedPage(

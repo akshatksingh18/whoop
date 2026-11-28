@@ -75,7 +75,7 @@ void main() {
         samples.single!.ay,
         samples.single!.az,
       ], everyElement(isNull));
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         raws,
         samples,
         trimToken: trim,
@@ -106,7 +106,7 @@ void main() {
           ),
           isEmpty,
         );
-        expect(await LocalDb.getCursor('strap_trim'), tokenHex);
+        expect(await CursorStore.read('strap_trim'), tokenHex);
         writes.add(List.of(inner.sublist(3)));
         return !refuseAck;
       }
@@ -149,7 +149,7 @@ void main() {
         await LocalDb.close();
         db = await LocalDb.instance;
         expect(await beats(), before);
-        expect(await LocalDb.getCursor('strap_trim'), tokenHex);
+        expect(await CursorStore.read('strap_trim'), tokenHex);
         expect(
           (await LocalDb.syncLedgerEntry('batch:$tokenHex'))!['status'],
           'acked',
@@ -198,7 +198,7 @@ void main() {
           expect(writes, isEmpty);
           expect(await beats(), isEmpty);
           expect(await db.query('samples'), isEmpty);
-          expect(await LocalDb.getCursor('strap_trim'), isNull);
+          expect(await CursorStore.read('strap_trim'), isNull);
         }
         await db.execute('DROP TRIGGER IF EXISTS authored_r10_refusal');
         await engine.disconnect();
@@ -261,7 +261,7 @@ void main() {
         ),
         foreign,
       );
-      expect(await LocalDb.getCursor('strap_trim'), tokenHex);
+      expect(await CursorStore.read('strap_trim'), tokenHex);
     },
   );
 }

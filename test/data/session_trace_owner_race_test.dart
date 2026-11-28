@@ -52,7 +52,7 @@ void main() {
           final end = start.add(const Duration(minutes: 3));
           final startTs = start.millisecondsSinceEpoch ~/ 1000;
           final endTs = end.millisecondsSinceEpoch ~/ 1000;
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'type': 'general_workout',
             'start_ts': startTs,
@@ -67,7 +67,7 @@ void main() {
             'max_hr': 150,
             'zone_min_json': '[1,2,3,4,5]',
           });
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-unrelated-session',
             'type': 'general_workout',
             'start_ts': startTs - 3600,
@@ -77,7 +77,7 @@ void main() {
             'source': 'manual',
             'calories': 0,
           });
-          final sibling = await LocalDb.session('authored-unrelated-session');
+          final sibling = await SessionStore.byId('authored-unrelated-session');
           final clock = WorkoutClock(
             id,
             start,
@@ -104,7 +104,7 @@ void main() {
           await store.reached!.future.timeout(const Duration(seconds: 5));
           final bounded =
               jsonDecode(
-                    (await LocalDb.baseline(
+                    (await MetricSeriesStore.baseline(
                           '${CalculationStore.prefix}$key',
                         ))!['payload_json']
                         as String,
@@ -120,31 +120,34 @@ void main() {
           Map<String, dynamic>? concurrent;
           if (action == 'delete') {
             await repo.deleteWorkout(id);
-            expect(await LocalDb.session(id), isNull);
+            expect(await SessionStore.byId(id), isNull);
           } else {
             await repo.setWorkoutWindow(
               id,
               startTs: startTs,
               endTs: endTs + 120,
             );
-            concurrent = await LocalDb.session(id);
+            concurrent = await SessionStore.byId(id);
             expect(concurrent!['end_ts'], endTs + 120);
           }
           gate!.complete();
           await reading.timeout(const Duration(seconds: 5));
           await WorkoutClock.flushWrites();
           if (action == 'delete') {
-            expect(await LocalDb.session(id), isNull);
+            expect(await SessionStore.byId(id), isNull);
             expect(await repo.getWorkout(id), isEmpty);
           } else {
-            expect(await LocalDb.session(id), concurrent);
+            expect(await SessionStore.byId(id), concurrent);
             final reread = await repo.getWorkout(id);
             expect(reread['end_ts'], endTs + 120);
-            expect(await LocalDb.session(id), concurrent);
+            expect(await SessionStore.byId(id), concurrent);
           }
-          expect(await LocalDb.session('authored-unrelated-session'), sibling);
           expect(
-            (await LocalDb.baseline(
+            await SessionStore.byId('authored-unrelated-session'),
+            sibling,
+          );
+          expect(
+            (await MetricSeriesStore.baseline(
               '${CalculationStore.prefix}$key',
             ))!['payload_json'],
             jsonEncode(bounded),

@@ -377,7 +377,7 @@ void main() {
       );
       if (finished) {
         current.finish(start.add(const Duration(minutes: 4)));
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'live',
           'start_ts': start.millisecondsSinceEpoch ~/ 1000,
           'end_ts': current.endedAt!.millisecondsSinceEpoch ~/ 1000,

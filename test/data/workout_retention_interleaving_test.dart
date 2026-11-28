@@ -53,7 +53,9 @@ class _RetentionDatabase extends SourceReadDatabase {
       owner.boundaries++;
       // The actual public retention transaction runs after a real aggregate
       // snapshot and before the next independently awaited sample read.
-      owner.pruned = await LocalDb.pruneDecodedBeforeRecTs(owner.cutoff);
+      owner.pruned = await StorageRetentionStore.pruneDecodedBefore(
+        owner.cutoff,
+      );
     }
     return rows;
   }
@@ -85,7 +87,7 @@ void main() {
             windowJson: '{}',
             finalized: true,
           );
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-retention-workout',
             'start_ts': start,
             'end_ts': start + 180,
@@ -101,7 +103,7 @@ void main() {
           });
           final times = [start + 30, start + 60, start + 90];
           final rates = [90, 120, 150];
-          await LocalDb.commitSyncBatch(
+          await SyncLedgerStore.commitBatch(
             [
               for (var i = 0; i < times.length; i++)
                 RawRecord(

@@ -61,7 +61,7 @@ void main() {
       final cancelled = <int?>[];
       service.debugCancel = (id) async => cancelled.add(id);
       final db = await LocalDb.instance;
-      await LocalDb.setCursor('authored-recovery', 'keep');
+      await CursorStore.write('authored-recovery', 'keep');
       final before = await db.query('sync_cursor');
       SharedPreferences.setMockInitialValues({
         'notif_reminders': 'authored wrong type',
@@ -207,7 +207,7 @@ void main() {
           }
           await source.close();
           final bytes = await original.readAsBytes();
-          await LocalDb.setCursor('authored-recovery', 'keep');
+          await CursorStore.write('authored-recovery', 'keep');
           final revision = await SleepOverrideStore.correctionRevision();
           final app = AppState.forTesting();
           final published = app.insightsRevision.value;
@@ -247,7 +247,7 @@ void main() {
               published + (hasJournal ? 2 : 0),
             );
             expect(await SleepOverrideStore.correctionRevision(), revision);
-            expect(await LocalDb.getCursor('authored-recovery'), 'keep');
+            expect(await CursorStore.read('authored-recovery'), 'keep');
             expect(
               await (await LocalDb.instance).query('journal'),
               hasJournal ? hasLength(1) : isEmpty,
@@ -266,7 +266,7 @@ void main() {
               greaterThan(revision),
             );
             expect(await original.readAsBytes(), bytes);
-            expect(await LocalDb.getCursor('authored-recovery'), 'keep');
+            expect(await CursorStore.read('authored-recovery'), 'keep');
           } finally {
             app.dispose();
           }

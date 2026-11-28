@@ -263,7 +263,7 @@ class _BaselineHistoryCache {
   /// de-duplicated store on every load makes the read path immune and self-heals
   /// any already-polluted install.
   ///
-  /// NOTE ON THE QUERY: `LocalDb.metricSeries(key)` with NO `limit` is the whole
+  /// NOTE ON THE QUERY: `MetricSeriesStore.series(key)` with NO `limit` is the whole
   /// series, `date ASC` — the dates are what make a per-day `date < target`
   /// window possible at all. It must NOT be given a `limit` (that is `date ASC
   /// LIMIT n`, i.e. the OLDEST n — the opposite of a trailing window); the
@@ -294,7 +294,7 @@ class _BaselineHistoryCache {
     final imported = await LocalDb.importedDates();
     final foreignFamily = await LocalDb.foreignFamilyDates();
     Future<List<_DatedValue>> hist(String key) async {
-      final rows = await LocalDb.metricSeries(key);
+      final rows = await MetricSeriesStore.series(key);
       final seam = LocalDb.familySeamKeys.contains(key)
           ? foreignFamily
           : const <String>{};
@@ -826,7 +826,7 @@ class DerivationEngine {
         // drop it without the adjacency ever having been fixed. (A day kept
         // deliberately — a pruned override day — is not a failure.)
         if (failures == 0) {
-          await LocalDb.putBaseline(
+          await MetricSeriesStore.putBaseline(
             'tz_travel_guard',
             jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes}),
           );
@@ -1021,7 +1021,10 @@ class DerivationEngine {
     if (override == null && !freshCorrection) {
       final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
       if (finalized.contains(dayId)) {
-        final cached = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+        final cached = await SleepIntermediateStore.candidate(
+          dayId,
+          kAlgoVersion,
+        );
         final raw = cached?['payload_json'];
         if (raw is String && raw.isNotEmpty) {
           try {
@@ -1163,12 +1166,14 @@ class DerivationEngine {
       // NEVER RE-STAGE A NIGHT SHORTER THAN THE ONE ALREADY BANKED (#242).
       //
       // A day re-stages on every pass for its first 48 h, and the substrate it
-      // stages over does not only grow: `pruneDecodedBeforeRecTs` runs once the
-      // covering day is derived, so a later pass can look at the same night
-      // through less data and produce a shorter one — which then REPLACED the
-      // good candidate, and the day rebuilt from it. That is the reported "it
-      // got fixed, then a few syncs later it went back", and it is a write-path
-      // defect, not a staging one (a mid-night wake bridges and sums correctly).
+      // stages over does not only grow:
+      // `StorageRetentionStore.pruneDecodedBefore` runs once the covering day
+      // is derived, so a later pass can look at the same night through less
+      // data and produce a shorter one — which then REPLACED the good
+      // candidate, and the day rebuilt from it. That is the reported "it got
+      // fixed, then a few syncs later it went back", and it is a write-path
+      // defect, not a staging one (a mid-night wake bridges and sums
+      // correctly).
       //
       // The guard belongs HERE rather than on the day result: the candidate is
       // earlier of the sleep block, the hypnogram AND every sleep scalar, so
@@ -1179,7 +1184,10 @@ class DerivationEngine {
       // Keyed at this algo version, so a bump still re-stages from scratch —
       // that is what a bump is for. An override never reaches this branch, so a
       // user shortening their own night is untouched.
-      final stored = await LocalDb.sleepSessionCandidate(dayId, kAlgoVersion);
+      final stored = await SleepIntermediateStore.candidate(
+        dayId,
+        kAlgoVersion,
+      );
       final storedJson = stored?['payload_json'];
       if (!freshCorrection && storedJson is String && storedJson.isNotEmpty) {
         try {
@@ -1198,7 +1206,7 @@ class DerivationEngine {
           // Undecodable stored candidate — the fresh one is strictly better.
         }
       }
-      final candidateStored = await LocalDb.putSleepSessionCandidate(
+      final candidateStored = await SleepIntermediateStore.putCandidate(
         dayId: dayId,
         algoVersion: kAlgoVersion,
         payloadJson: candidateJson,
@@ -1287,7 +1295,7 @@ class DerivationEngine {
     // profile, fold, and clobber the other, losing both the fold and its
     // day_id from folded_days. SQLite's write lock is cross-connection and
     // therefore cross-isolate.
-    await LocalDb.updateBaseline(
+    await MetricSeriesStore.updateBaseline(
       'sleep_user_profile',
       (current) {
         // Re-derive freshness INSIDE the transaction: the value this day read
@@ -1338,7 +1346,7 @@ class DerivationEngine {
   /// cardio_stager.dart was validated on — and the profile re-earns its weight
   /// over the next few nights under the corrected accounting.
   Future<String?> _loadSleepUserProfileJson() async {
-    final row = await LocalDb.baseline('sleep_user_profile');
+    final row = await MetricSeriesStore.baseline('sleep_user_profile');
     final raw = row?['payload_json'];
     if (raw is! String || raw.isEmpty) return null;
     // Validate here (mirrors the cached-candidate guard above) so a corrupt
@@ -1682,7 +1690,7 @@ class DerivationEngine {
     // Persisted boundaries replace the former hold-on-travel workaround.
     if (DayClock.days.isNotEmpty) return false;
     final nowOffsetMin = DateTime.now().timeZoneOffset.inMinutes;
-    final row = await LocalDb.baseline('tz_travel_guard');
+    final row = await MetricSeriesStore.baseline('tz_travel_guard');
     final raw = row?['payload_json'];
     int? lastOffsetMin;
     if (raw is String && raw.isNotEmpty) {
@@ -1694,7 +1702,7 @@ class DerivationEngine {
       }
     }
     if (lastOffsetMin == null) {
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'tz_travel_guard',
         jsonEncode({'offset_min': nowOffsetMin}),
       );
@@ -1702,7 +1710,7 @@ class DerivationEngine {
     }
     final jumped = (nowOffsetMin - lastOffsetMin).abs() >= _tzJumpThresholdMin;
     if (!jumped) {
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'tz_travel_guard',
         jsonEncode({'offset_min': nowOffsetMin}),
       );
@@ -1758,7 +1766,7 @@ class DerivationEngine {
       // Baseline gate: compute the CURRENT signature and compare to the stored
       // one. Unchanged → nothing to refresh; bail cheaply (no redundant writes).
       final sig = await _baselineSignature();
-      final prev = await LocalDb.getCursor('baseline_sig');
+      final prev = await CursorStore.read('baseline_sig');
       if (sig == prev) {
         _log('baseline unchanged — rescan skipped');
         return 0;
@@ -1848,7 +1856,7 @@ class DerivationEngine {
       // Only acknowledge a complete refresh. A failed day keeps its old result
       // and must retry even when the baseline itself has not moved again.
       if (failures == 0) {
-        await LocalDb.setCursor('baseline_sig', await _baselineSignature());
+        await CursorStore.write('baseline_sig', await _baselineSignature());
       } else {
         _log('rescan incomplete: $failures day(s) remain pending');
       }
@@ -1874,7 +1882,7 @@ class DerivationEngine {
   /// re-derived) these medians shift and the signature changes → a rescan fires;
   /// when nothing moved the signature is byte-identical → the rescan is skipped.
   Future<String> _baselineSignature() async {
-    final artifact = await LocalDb.baseline('rolling_artifact');
+    final artifact = await MetricSeriesStore.baseline('rolling_artifact');
     final raw = artifact?['payload_json'];
     if (raw is String && raw.isNotEmpty) {
       try {
@@ -2069,7 +2077,7 @@ class DerivationEngine {
     // is built — because BOTH energy passes price walking off these spans:
     // the pipeline's early-read mirror below and the second-half
     // `applyDayActivity`. One read, one span list, or the two figures drift.
-    final liveSteps = await LocalDb.resolvedStepsForDay(day.date);
+    final liveSteps = await StepCoverageStore.resolvedStepsForDay(day.date);
     final stepSpans = [
       for (final s in liveSteps.spans) [s.startTs, s.endTs, s.steps],
     ];
@@ -2281,7 +2289,7 @@ class DerivationEngine {
       // sample, so a completed session the band's PPG lost contact for
       // entirely (zero HR samples at all, e.g. a wrist-gripping lift) can
       // fall outside them and never reach the zero-coverage credit below.
-      final savedSessions = await LocalDb.sessionsInRange(
+      final savedSessions = await SessionStore.inRange(
         _localDayLabelToSec(day.date),
         localNextMidnightSecForDayLabel(day.date),
       );
@@ -2304,8 +2312,14 @@ class DerivationEngine {
           : napLo;
       final wearLo = math.min(spanLo, _localDayLabelToSec(day.date));
       final wearHi = math.max(napHi, localNextMidnightSecForDayLabel(day.date));
-      final wristOffSpans = await LocalDb.wristOffSpans(wearLo, wearHi);
-      final chargingSpans = await LocalDb.chargingSpans(wearLo, wearHi);
+      final wristOffSpans = await StepCoverageStore.wristOffSpans(
+        wearLo,
+        wearHi,
+      );
+      final chargingSpans = await StepCoverageStore.chargingSpans(
+        wearLo,
+        wearHi,
+      );
 
       // PERSONAL movement floor — ESTIMATED ONCE, THEN FROZEN.
       //
@@ -2453,11 +2467,11 @@ class DerivationEngine {
 
       // DB writes + notification the pure compute deferred to us (DB-owning isolate).
       for (final w in blocks.sessionHrrWrites) {
-        await LocalDb.setSessionHrr(w.$1, w.$2);
+        await SessionStore.setHrr(w.$1, w.$2);
         onSessionChanged?.call();
       }
       for (final sug in blocks.suggestionsToPersist) {
-        await LocalDb.putWorkoutSuggestion({
+        await WorkoutSuggestionStore.put({
           ...sug,
           'created_at': DateTime.now().millisecondsSinceEpoch,
         });
@@ -2466,13 +2480,13 @@ class DerivationEngine {
       // Only for a bout that is STILL waiting on an answer. The detector is
       // pure and re-derives the same bouts every pass; dismissing one, logging
       // it, or logging any session that covers its window retires the row
-      // (`LocalDb.activeWorkoutSuggestions`), and none of that reaches the detector. So
+      // (`WorkoutSuggestionStore.active`), and none of that reaches the detector. So
       // the live table is what decides, not the detection — a notification
       // about a workout already in the log is how someone turns all of them
       // off. `putWorkoutSuggestion` ran a few lines up, so the row is there.
       final live = nb == null
           ? false
-          : (await LocalDb.activeWorkoutSuggestions()).any(
+          : (await WorkoutSuggestionStore.active()).any(
               (r) => r['id'] == nb.id,
             );
       if (nb != null && live) {
@@ -2719,7 +2733,7 @@ class DerivationEngine {
     if (!hasSleep) return;
     final overnightComplete =
         dataNowSec >= day.sleepOffsetSec + _headlineFreezeMarginSec;
-    final current = await LocalDb.frozenHeadline();
+    final current = await FrozenHeadlineStore.read();
     final next = nextFrozenHeadline(
       today: day.date,
       overnightComplete: overnightComplete,
@@ -2733,7 +2747,7 @@ class DerivationEngine {
         current.value == next.value) {
       return;
     }
-    await LocalDb.setFrozenHeadline(
+    await FrozenHeadlineStore.put(
       next.day,
       next.value,
       sleepIntentGeneration: day.sleepIntentGeneration,
@@ -3060,7 +3074,7 @@ class DerivationEngine {
       if (usableDays < 3) {
         _log('crossday: only ${days.length} usable day(s) — skip');
         DeriveStop.check(stopGen);
-        await LocalDb.putBaseline(
+        await MetricSeriesStore.putBaseline(
           'crossday_status',
           jsonEncode({'kind': 'needs_history', 'days': days.length}),
         );
@@ -3121,7 +3135,7 @@ class DerivationEngine {
         label: 'crossday',
       );
       DeriveStop.check(stopGen);
-      if (!await LocalDb.putBaseline(
+      if (!await MetricSeriesStore.putBaseline(
         'crossday',
         bundleJson,
         sleepRevision: sleepRevision,
@@ -3132,7 +3146,7 @@ class DerivationEngine {
       // the Home sleep bar can divide last night's sleep by the need that
       // applied to last night, not by tonight's. Written only when present.
       if (needSec != null) {
-        await LocalDb.putMetricSeriesValue(
+        await MetricSeriesStore.putValue(
           builtForDay,
           'sleep_need_min',
           (needSec / 60).roundToDouble(),
@@ -3148,7 +3162,7 @@ class DerivationEngine {
       }
       _log('crossday: stored over ${days.length} day(s)');
       DeriveStop.check(stopGen);
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'crossday_status',
         jsonEncode({'kind': 'ready', 'days': days.length}),
       );
@@ -3164,7 +3178,7 @@ class DerivationEngine {
         'now stale and every cross-day metric will read absent: $e\n$st',
       );
       _log('crossday FAILED/skipped: $e');
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'crossday_status',
         jsonEncode({'kind': 'failed'}),
       );
@@ -3194,7 +3208,7 @@ class DerivationEngine {
     final fromSec = _localDayLabelToSec(first);
     final toSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     final out = <String, List<String>>{};
-    for (final r in await LocalDb.sessionsInRange(fromSec, toSec)) {
+    for (final r in await SessionStore.inRange(fromSec, toSec)) {
       if (r['status'] == 'live') continue;
       final start = (r['start_ts'] as num?)?.toInt();
       final type = r['type']?.toString();
@@ -3263,7 +3277,7 @@ class DerivationEngine {
 
   Future<void> _runNotifications() async {
     try {
-      final cdRow = await LocalDb.baseline('crossday');
+      final cdRow = await MetricSeriesStore.baseline('crossday');
       final cd = _decodeBundle(cdRow?['payload_json']);
       if (cd == null) return;
       String? date;
@@ -3334,7 +3348,7 @@ class DerivationEngine {
       // weight gates), so it is not additionally gated on `unsettled`: a day
       // only finalizes 48 h later, which would suppress every same-morning
       // finding.
-      final score = await LocalDb.metricValueOn(date, 'readiness');
+      final score = await MetricSeriesStore.valueOn(date, 'readiness');
       if (score != null && score < kLowReadiness) {
         findings.add(Finding(FindingKind.lowReadiness, date));
       }
@@ -3577,14 +3591,14 @@ class DerivationEngine {
     final artifact = history.toArtifactJson();
     final rolling = ((artifact['rolling'] as Map?) ?? const {})
         .cast<String, dynamic>();
-    if (!await LocalDb.putBaseline(
+    if (!await MetricSeriesStore.putBaseline(
       'rolling_artifact',
       jsonEncode(artifact),
       sleepRevision: sleepRevision,
     )) {
       return;
     }
-    await LocalDb.putBaseline(
+    await MetricSeriesStore.putBaseline(
       'rolling',
       jsonEncode(rolling),
       sleepRevision: sleepRevision,
@@ -3668,14 +3682,14 @@ class DerivationEngine {
       derivedDayIds: derivedIds,
     );
     if (cutoffSec == null) return;
-    final deleted = await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
+    final deleted = await StorageRetentionStore.pruneDecodedBefore(cutoffSec);
     if (deleted > 0) {
       _log('pruned $deleted decoded rows with rec_ts < $cutoffSec');
     }
     // Superseded generations of the recomputable per-day intermediates. Runs
     // here rather than inside the decoded prune so it stays off the path to a
     // durable commit.
-    final stale = await LocalDb.pruneSupersededIntermediates();
+    final stale = await StorageRetentionStore.pruneSupersededIntermediates();
     if (stale > 0) {
       _log('pruned $stale superseded intermediate rows');
     }
@@ -3710,7 +3724,7 @@ class DerivationEngine {
   /// runs under iOS's CPU watchdog (invariant 11).
   Future<void> _runStorageHousekeeping() async {
     try {
-      final reencoded = await LocalDb.reencodeLegacyDayResults();
+      final reencoded = await SeriesReencodeStore.run();
       if (reencoded > 0) {
         _log('re-encoded $reencoded legacy day bundles');
       }
@@ -3949,7 +3963,7 @@ class DerivationEngine {
     int dynHistoryDays = 0,
     List<List<int>> stepSpans = const [],
 
-    /// This day's `sessions` rows (`LocalDb.sessionsInRange`), for the
+    /// This day's `sessions` rows (`SessionStore.inRange`), for the
     /// zero-coverage credit below. Defaults to none — every existing caller
     /// keeps its old behaviour until it is threaded through.
     List<Map<String, dynamic>> sessions = const [],
@@ -4202,7 +4216,7 @@ class DerivationEngine {
     _BaselineHistoryCache history,
     String dayId,
   ) async {
-    final stored = await LocalDb.getMovementFloor();
+    final stored = await MetricSeriesStore.movementFloor();
     final hist = history.valuesBefore('dyn_p90', dayId);
 
     if (stored != null) {
@@ -4253,7 +4267,7 @@ class DerivationEngine {
 
     final floor = ana.personalDynFloorFromDailySummaries(hist);
     if (floor == null) return stored?.floorG;
-    await LocalDb.putMovementFloor(
+    await MetricSeriesStore.putMovementFloor(
       floorG: floor,
       frozenOn: dayId,
       days: hist.length,
@@ -4303,7 +4317,7 @@ class DerivationEngine {
     // THE SOURCE LADDER, and where each rung is actually decided.
     //
     // Rungs 1 (band 100 Hz) and 3 (phone) are WINDOWED and were already settled
-    // before this ran: `LocalDb.resolvedStepsForDay` walked the day's spans and
+    // before this ran: `StepCoverageStore.resolvedStepsForDay` walked the day's spans and
     // gave each one to the best source that covered it, so `liveStepsReal` is
     // already a sum of resolved spans and `liveStepsFromStrap` is the band's
     // share of it. Nothing here re-decides that.
@@ -4529,7 +4543,7 @@ class DerivationEngine {
     required Map<String, dynamic> wake,
   }) async {
     final payload = <String, dynamic>{'day_id': dayId, ...wake};
-    await LocalDb.putWakeDayFeatures(
+    await SleepIntermediateStore.putWakeFeatures(
       dayId: dayId,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(payload),

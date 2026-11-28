@@ -90,7 +90,7 @@ void main() {
     await databaseFactory.deleteDatabase(await _dbPath('strength_cascade.db'));
     await _openThroughLocalDb('strength_cascade.db');
 
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'sess-del',
       'start_ts': 1770100000,
       'end_ts': 1770103600,
@@ -109,7 +109,7 @@ void main() {
       'at_ts': 1770100100,
     });
 
-    await LocalDb.deleteSession('sess-del');
+    await SessionStore.delete('sess-del');
 
     // A set on a deleted workout would otherwise keep exporting under a
     // session_id that no longer exists.
@@ -125,7 +125,7 @@ void main() {
       expect(private['notnull'], 1);
       expect(private['dflt_value'], '0');
 
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'sess-priv',
         'start_ts': 1770200000,
         'end_ts': 1770203600,
@@ -133,11 +133,11 @@ void main() {
         'status': 'done',
         'created_at': 1770200000,
       });
-      expect((await LocalDb.session('sess-priv'))!['private'], 0);
-      await LocalDb.setSessionPrivate('sess-priv', true);
-      expect((await LocalDb.session('sess-priv'))!['private'], 1);
-      await LocalDb.setSessionPrivate('sess-priv', false);
-      expect((await LocalDb.session('sess-priv'))!['private'], 0);
+      expect((await SessionStore.byId('sess-priv'))!['private'], 0);
+      await SessionStore.setPrivate('sess-priv', true);
+      expect((await SessionStore.byId('sess-priv'))!['private'], 1);
+      await SessionStore.setPrivate('sess-priv', false);
+      expect((await SessionStore.byId('sess-priv'))!['private'], 0);
     },
   );
 }

@@ -65,7 +65,7 @@ Future<void> seedDay(
 }
 
 Future<double?> seriesValue(String key, String day) async {
-  final rows = await LocalDb.metricSeries(key);
+  final rows = await MetricSeriesStore.series(key);
   for (final r in rows) {
     if (r['date'] == day) return (r['value'] as num?)?.toDouble();
   }
@@ -241,7 +241,7 @@ void main() {
     });
 
     test('a day with no stored TRIMP is skipped, not zeroed', () async {
-      await LocalDb.putComputeFreshness(kStrainRescaleKey, '{}');
+      await ComputeFreshnessStore.put(kStrainRescaleKey, '{}');
       await seedDay(
         '2026-06-01',
         trimp: null,
@@ -262,7 +262,7 @@ void main() {
       // number under the old reconstruction. Without the curve there is no
       // record of the window the TRIMP was actually scored over, so the day
       // keeps its old headline rather than getting a differently-wrong one.
-      await LocalDb.putComputeFreshness(kStrainRescaleKey, '{}');
+      await ComputeFreshnessStore.put(kStrainRescaleKey, '{}');
       await seedDay(
         '2026-06-02',
         trimp: 177.8,

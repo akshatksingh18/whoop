@@ -81,7 +81,7 @@ void main() {
             );
           }
           boundary.fault = mode;
-          Future<void> commit() => LocalDb.commitSyncBatch(
+          Future<void> commit() => SyncLedgerStore.commitBatch(
             [raw],
             [Sample(tsEpoch: ts, counter: 17, hr: 63)],
             trimToken: token,
@@ -102,19 +102,19 @@ void main() {
           boundary.fault = null;
           expect(await db.query('samples'), hasLength(refusedRow ? 0 : 1));
           expect(
-            await LocalDb.getCursor('strap_trim'),
+            await CursorStore.read('strap_trim'),
             refusedRow ? null : token,
           );
           expect(
-            await LocalDb.getCursorInt('counter_hw'),
+            await CursorStore.readInt('counter_hw'),
             refusedRow ? null : 17,
           );
           expect(
-            await LocalDb.getCursorInt('rec_ts_hw'),
+            await CursorStore.readInt('rec_ts_hw'),
             refusedRow ? null : ts,
           );
           expect(
-            await LocalDb.getCursor('authored-extra'),
+            await CursorStore.read('authored-extra'),
             refusedRow ? null : 'kept',
           );
           final level = (await db.rawQuery(
@@ -135,7 +135,7 @@ void main() {
           log.clear();
           await commit();
           expect(await db.query('samples'), hasLength(1));
-          expect(await LocalDb.getCursor('strap_trim'), token);
+          expect(await CursorStore.read('strap_trim'), token);
           expect(log.any((s) => s.contains('downgrades_total=')), false);
           expect(
             (await db.rawQuery('PRAGMA synchronous')).single.values.single,

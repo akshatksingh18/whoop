@@ -109,7 +109,7 @@ void main() {
     app = AppState.forTesting();
     app.repo = LocalRepositoryImpl(getProfileMap: () => {'weight_kg': 70.0});
     final start = DateTime.now().subtract(const Duration(minutes: 2));
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'synthetic-live-route',
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,
       'type': 'running',
@@ -174,9 +174,12 @@ void main() {
       await settle();
       expect(geo.positions.hasListener, false);
       expect(ScreenWake.isHeld, false);
-      expect(await LocalDb.routePoints('synthetic-live-route'), hasLength(1));
       expect(
-        (await LocalDb.session('synthetic-live-route'))!['status'],
+        await WorkoutRouteStore.points('synthetic-live-route'),
+        hasLength(1),
+      );
+      expect(
+        (await SessionStore.byId('synthetic-live-route'))!['status'],
         'live',
       );
       expect(
@@ -222,7 +225,7 @@ void main() {
       expect(app.routeTracker, isNull);
       expect(geo.streams, 0);
       expect(app.activeWorkout?.workoutId, 'synthetic-live-route');
-      expect(await LocalDb.routePoints('synthetic-live-route'), isEmpty);
+      expect(await WorkoutRouteStore.points('synthetic-live-route'), isEmpty);
     });
   }
 
@@ -260,13 +263,16 @@ void main() {
         lng: 0.0001,
         accuracy: 5,
       );
-      await LocalDb.appendRoutePoints(id, [old.toRow(id), second.toRow(id)]);
+      await WorkoutRouteStore.appendPoints(id, [
+        old.toRow(id),
+        second.toRow(id),
+      ]);
       await Future.wait([app.retryRouteTracking(), app.retryRouteTracking()]);
       expect(geo.streams, 1);
       expect(app.routeTracker!.acceptedPoints.map((p) => p.seq), [8, 9]);
       await app.retryRouteTracking();
       expect(geo.streams, 1);
-      expect((await LocalDb.routePoints(id)).map((p) => p['seq']), [8, 9]);
+      expect((await WorkoutRouteStore.points(id)).map((p) => p['seq']), [8, 9]);
     },
   );
 
@@ -304,7 +310,7 @@ void main() {
       expect(app.routeTracker, isNotNull);
       expect(app.routeLocationIssue, isNull);
       expect(
-        (await LocalDb.session('synthetic-live-route'))!['status'],
+        (await SessionStore.byId('synthetic-live-route'))!['status'],
         'live',
       );
     },
@@ -408,8 +414,8 @@ void main() {
         expect(clock.end, isNull);
         expect(clock.spokenKm, 0);
         await tracker!.stop();
-        expect(await LocalDb.routePoints(clock.id), hasLength(7));
-        expect((await LocalDb.session(clock.id))!['status'], 'live');
+        expect(await WorkoutRouteStore.points(clock.id), hasLength(7));
+        expect((await SessionStore.byId(clock.id))!['status'], 'live');
       },
     );
   }
@@ -450,10 +456,10 @@ void main() {
         true,
       );
       expect(
-        (await LocalDb.session('synthetic-live-route'))!['status'],
+        (await SessionStore.byId('synthetic-live-route'))!['status'],
         'live',
       );
-      expect(await LocalDb.routePoints('synthetic-live-route'), isEmpty);
+      expect(await WorkoutRouteStore.points('synthetic-live-route'), isEmpty);
     },
   );
 
@@ -484,8 +490,8 @@ void main() {
       expect(app.activeWorkout, isNull);
       expect(app.routeTracker, isNull);
       expect(geo.positions.hasListener, false);
-      expect(await LocalDb.session('synthetic-live-route'), isNull);
-      expect(await LocalDb.routePoints('synthetic-live-route'), isEmpty);
+      expect(await SessionStore.byId('synthetic-live-route'), isNull);
+      expect(await WorkoutRouteStore.points('synthetic-live-route'), isEmpty);
     },
   );
 
@@ -537,7 +543,7 @@ void main() {
   test(
     'COV-48 actual live host separates armed GPS from a fresh fix',
     () async {
-      final row = await LocalDb.session('synthetic-live-route');
+      final row = await SessionStore.byId('synthetic-live-route');
       await app.retryRouteTracking();
       final host = activityHost(app);
       final waiting = host.feed!();
@@ -556,9 +562,12 @@ void main() {
       expect(moving.hr, isNull);
       expect(moving.steps, isNull);
       expect(moving.hrActiveCalories, isNull);
-      expect(await LocalDb.session('synthetic-live-route'), row);
+      expect(await SessionStore.byId('synthetic-live-route'), row);
       await app.routeTracker!.stop();
-      expect(await LocalDb.routePoints('synthetic-live-route'), hasLength(1));
+      expect(
+        await WorkoutRouteStore.points('synthetic-live-route'),
+        hasLength(1),
+      );
     },
   );
 
@@ -568,7 +577,7 @@ void main() {
       geo.permission = issue == 'permanent denial'
           ? LocationPermission.deniedForever
           : LocationPermission.whileInUse;
-      final row = await LocalDb.session('synthetic-live-route');
+      final row = await SessionStore.byId('synthetic-live-route');
       await app.retryRouteTracking();
       activityHost(app).feed!().onFixRoute!();
       await settle();
@@ -576,14 +585,14 @@ void main() {
       expect(geo.checks, 1);
       expect(geo.streams, 0);
       expect(app.routeTracker, isNull);
-      expect(await LocalDb.session('synthetic-live-route'), row);
-      expect(await LocalDb.routePoints('synthetic-live-route'), isEmpty);
+      expect(await SessionStore.byId('synthetic-live-route'), row);
+      expect(await WorkoutRouteStore.points('synthetic-live-route'), isEmpty);
     });
   }
 
   test('COV-48 final route flush finishes the actual session once', () async {
     const id = 'synthetic-live-route';
-    final before = (await LocalDb.session(id))!;
+    final before = (await SessionStore.byId(id))!;
     await app.retryRouteTracking();
     tracker = app.routeTracker!;
     final at = DateTime.now().subtract(const Duration(seconds: 10));
@@ -599,17 +608,17 @@ void main() {
     expect(app.routeTracker, isNull);
     expect(app.routeLocationIssue, isNull);
     expect(geo.positions.hasListener, false);
-    final saved = (await LocalDb.session(id))!;
+    final saved = (await SessionStore.byId(id))!;
     expect(saved['status'], 'done');
     expect(saved['start_ts'], before['start_ts']);
     expect(saved['type'], before['type']);
     expect(saved['steps'], isNull);
-    final points = await LocalDb.routePoints(id);
+    final points = await WorkoutRouteStore.points(id);
     expect(points, hasLength(2));
     expect(points.map((r) => r['lng']), [0, .0002]);
     await app.stopWorkout();
-    expect(await LocalDb.session(id), saved);
-    expect(await LocalDb.routePoints(id), points);
+    expect(await SessionStore.byId(id), saved);
+    expect(await WorkoutRouteStore.points(id), points);
   });
 
   test(
@@ -631,8 +640,11 @@ void main() {
         lng: .0001,
         accuracy: 5,
       );
-      await LocalDb.appendRoutePoints(id, [old.toRow(id), second.toRow(id)]);
-      final rows = await LocalDb.routePoints(id);
+      await WorkoutRouteStore.appendPoints(id, [
+        old.toRow(id),
+        second.toRow(id),
+      ]);
+      final rows = await WorkoutRouteStore.points(id);
       final db = await LocalDb.instance;
       var restored = false;
       app.repo = _RouteReads()
@@ -653,12 +665,12 @@ void main() {
         geo.positions.add(fix(longitude: .0003));
         await settle();
         await tracker!.stop();
-        final after = await LocalDb.routePoints(id);
+        final after = await WorkoutRouteStore.points(id);
         expect(after, hasLength(3));
         expect(after.take(2), rows);
         expect(after.last['seq'] as int, greaterThan(9));
         expect(after.last['lng'], .0003);
-        expect((await LocalDb.session(id))!['status'], 'live');
+        expect((await SessionStore.byId(id))!['status'], 'live');
       } finally {
         if (!restored) {
           await db.execute(

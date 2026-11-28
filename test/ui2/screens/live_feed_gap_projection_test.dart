@@ -42,7 +42,7 @@ void main() {
             restingHr: anchored ? 60 : null,
           );
           app.activeWorkout = live;
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'type': live.type,
             'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -65,8 +65,10 @@ void main() {
           final ownCurve = live.perMinuteHrDense();
           final calories = live.calories;
           final strain = live.strain;
-          final saved = await LocalDb.session(id);
-          final clock = await LocalDb.baseline('calculation:workout.clock.$id');
+          final saved = await SessionStore.byId(id);
+          final clock = await MetricSeriesStore.baseline(
+            'calculation:workout.clock.$id',
+          );
           final host = activityHost(app);
           for (var redraw = 0; redraw < 2; redraw++) {
             final feed = host.feed!();
@@ -92,9 +94,9 @@ void main() {
             expect(live.calories, calories);
             expect(live.perMinuteHrDense(), ownCurve);
             expect(app.activeWorkout, same(live));
-            expect(await LocalDb.session(id), saved);
+            expect(await SessionStore.byId(id), saved);
             expect(
-              await LocalDb.baseline('calculation:workout.clock.$id'),
+              await MetricSeriesStore.baseline('calculation:workout.clock.$id'),
               clock,
             );
           }

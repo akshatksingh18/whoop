@@ -212,7 +212,7 @@ void main() {
         at: t0,
       );
       await LiftLogDb.save(w);
-      await LocalDb.deleteSession('sess-del');
+      await SessionStore.delete('sess-del');
       expect(await LiftLogDb.forSession('sess-del'), isNull);
     });
   });

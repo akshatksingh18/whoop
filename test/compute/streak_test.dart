@@ -109,7 +109,7 @@ void main() {
       final at = DateTime(t.year, t.month, t.day - 2, 7);
       await session('del-a', 'Running', at, 30);
       expect((await loadMoveStreak())!.last7[4], MoveDay.run);
-      await LocalDb.deleteSession('del-a');
+      await SessionStore.delete('del-a');
       expect((await loadMoveStreak())!.last7[4], MoveDay.none);
     });
   });

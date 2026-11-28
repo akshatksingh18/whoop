@@ -38,7 +38,7 @@ void main() {
         '$route from the historical Sleep page retains data at ${scale}x',
         (t) async {
           final db = await LocalDb.instance;
-          await LocalDb.putMetricSeriesValue(day, 'steps', 1234);
+          await MetricSeriesStore.putValue(day, 'steps', 1234);
           final before = await db.query('metric_series');
           final app = AppState.forTesting()
             ..repo = LocalRepositoryImpl(getProfileMap: () => {});

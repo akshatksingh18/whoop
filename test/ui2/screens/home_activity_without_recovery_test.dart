@@ -52,7 +52,7 @@ void main() {
             windowJson: '{}',
             series: {if (hasStrain) 'strain': 4.2},
           );
-          await LocalDb.putComputeFreshness(
+          await ComputeFreshnessStore.put(
             'today',
             jsonEncode({
               'today_day': day,
@@ -101,7 +101,7 @@ void main() {
         await flush(t);
         expect(control, findsOneWidget);
         expect(await t.runAsync(() => db.query('day_result')), before);
-        expect(await t.runAsync(LocalDb.frozenHeadline), isNull);
+        expect(await t.runAsync(FrozenHeadlineStore.read), isNull);
       },
     );
   }

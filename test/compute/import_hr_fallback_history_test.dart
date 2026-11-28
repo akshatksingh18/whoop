@@ -48,7 +48,7 @@ void main() {
         );
         final input = jsonEncode(sub.toJson());
         final db = await LocalDb.instance;
-        await LocalDb.setCursor('authored-unrelated-retention', 'keep');
+        await CursorStore.write('authored-unrelated-retention', 'keep');
         final engine = DerivationEngine(background: true);
         final completed = <String>[];
         expect(
@@ -88,7 +88,7 @@ void main() {
         expect(row['rmssd'], isNull, reason: 'No beat intervals were measured');
         expect(row['readiness'], isNull);
         expect(await LocalDb.dayResult(previous), isNull);
-        expect(await LocalDb.getCursor('authored-unrelated-retention'), 'keep');
+        expect(await CursorStore.read('authored-unrelated-retention'), 'keep');
         expect(jsonEncode(sub.toJson()), input);
         expect(await db.query('raw_archive'), isEmpty);
         expect(await db.query('decoded_onehz'), isEmpty);

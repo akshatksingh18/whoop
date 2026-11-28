@@ -35,7 +35,7 @@ void main() {
     return ledger;
   }
 
-  Future<void> measure(int steps) => LocalDb.replacePhoneCoverageForDay(day, [
+  Future<void> measure(int steps) => StepCoverageStore.replacePhoneForDay(day, [
     (
       startTs: localDayStartSec(day)!,
       endTs: localDayStartSec(day)! + 3600,
@@ -56,7 +56,7 @@ void main() {
         expect(StepGoals.goalOn(ledger, day), retained ? 1000 : 2000);
         expect((ledger['earned'] as Map).containsKey(day), retained);
         expect(StepGoals.busy, false);
-        final resolved = await LocalDb.resolvedStepsForDay(day);
+        final resolved = await StepCoverageStore.resolvedStepsForDay(day);
         expect(resolved.hasPhoneCoverage, steps != null);
         expect(resolved.total, steps ?? 0);
       },

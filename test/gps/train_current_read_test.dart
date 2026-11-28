@@ -86,7 +86,7 @@ void main() {
       );
       repo.refuseChart = false;
       await t.runAsync(
-        () => LocalDb.putMetricSeriesValue(todayLabel(), 'strain', 3.5),
+        () => MetricSeriesStore.putValue(todayLabel(), 'strain', 3.5),
       );
       await invokeControl(
         t,
@@ -115,7 +115,7 @@ void main() {
       app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
       final start = DateTime(2021, 4, 6, 8);
       final ts = start.millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'authored-route',
         'type': 'running',
         'start_ts': ts,
@@ -141,10 +141,10 @@ void main() {
             speed: 2 + i / 10,
           ),
       ];
-      await LocalDb.appendRoutePoints('authored-route', [
+      await WorkoutRouteStore.appendPoints('authored-route', [
         for (final p in points) p.toRow('authored-route'),
       ]);
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [
           for (var i = 0; i < 130; i++)
             RawRecord(
@@ -179,7 +179,9 @@ void main() {
         result.track.map((p) => (p.tsMs, p.lat, p.lng)),
         points.map((p) => (p.tsMs, p.lat, p.lng)),
       );
-      final row = (await t.runAsync(() => LocalDb.session('authored-route')))!;
+      final row = (await t.runAsync(
+        () => SessionStore.byId('authored-route'),
+      ))!;
       expect(row['rpe'], 8.5);
       expect(row['start_ts'], ts);
       expect(row['end_ts'], ts + 130);

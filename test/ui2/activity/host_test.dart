@@ -97,7 +97,7 @@ void main() {
     DateTime? at,
   }) async {
     final origin = at ?? start;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'type': type,
       'start_ts': origin.millisecondsSinceEpoch ~/ 1000,
@@ -167,17 +167,17 @@ void main() {
         host.onFinish!(draft()),
         throwsA(isA<DatabaseException>()),
       );
-      expect((await LocalDb.session(id))!['status'], 'live');
+      expect((await SessionStore.byId(id))!['status'], 'live');
       expect(app.activeWorkout?.workoutId, id);
       expect(WorkoutClock.current!.end, isNull);
       expect(LiveDraft.current!.private, isTrue);
-      expect(await LocalDb.sessionDetail(id), isNull);
+      expect(await SessionStore.detail(id), isNull);
       await db.execute('DROP TRIGGER synthetic_host_refusal');
       WorkoutClock.current!.finish(end);
       final saved = await host.onFinish!(draft());
       expect(saved.sessionId, id);
-      expect((await LocalDb.session(id))!['private'], 1);
-      expect(jsonDecode((await LocalDb.sessionDetail(id))!), typedExpected);
+      expect((await SessionStore.byId(id))!['private'], 1);
+      expect(jsonDecode((await SessionStore.detail(id))!), typedExpected);
       expect(saved.lapSecs, [0, 35, 40]);
       expect(saved.gameScore, [(0, 1), (2, 0)]);
     },
@@ -198,17 +198,17 @@ void main() {
       final staged = WorkoutClock.current!.pendingSession!;
       expect(staged['end_ts'], end.millisecondsSinceEpoch ~/ 1000);
       expect(app.activeWorkout?.workoutId, id);
-      expect(jsonDecode((await LocalDb.sessionDetail(id))!), typedExpected);
+      expect(jsonDecode((await SessionStore.detail(id))!), typedExpected);
       await db.execute('DROP TRIGGER synthetic_host_refusal');
       final saved = await host.onFinish!(draft());
       expect(saved.sessionId, id);
       expect(saved.duration, const Duration(minutes: 5));
-      expect((await LocalDb.session(id))!['end_ts'], staged['end_ts']);
+      expect((await SessionStore.byId(id))!['end_ts'], staged['end_ts']);
       expect(app.activeWorkout, isNull);
       await LocalDb.close();
       db = await LocalDb.instance;
       expect((await db.query('sessions')), hasLength(1));
-      expect(jsonDecode((await LocalDb.sessionDetail(id))!), typedExpected);
+      expect(jsonDecode((await SessionStore.detail(id))!), typedExpected);
     },
   );
 
@@ -220,14 +220,14 @@ void main() {
       repo.refuseRoute = true;
       await expectLater(host.onFinish!(draft()), throwsStateError);
       expect(app.activeWorkout, isNull);
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       expect(row!['status'], 'done');
       final revision = app.insightsRevision.value;
       repo.refuseRoute = false;
       final saved = await host.onFinish!(draft());
       expect(saved.sessionId, id);
       expect(saved.lapSecs, [0, 35, 40]);
-      expect(await LocalDb.session(id), row);
+      expect(await SessionStore.byId(id), row);
       expect(app.insightsRevision.value, revision);
       expect(await db.query('session_detail'), hasLength(1));
     },
@@ -246,9 +246,9 @@ void main() {
   test('COV-43 an empty typed draft preserves already stored detail', () async {
     await seed();
     const existing = '{"laps":[35,40],"pool":25}';
-    await LocalDb.putSessionDetail(id, existing);
+    await SessionStore.putDetail(id, existing);
     await activityHost(app).onFinish!(draft(typed: false));
-    expect(await LocalDb.sessionDetail(id), existing);
+    expect(await SessionStore.detail(id), existing);
   });
 
   test(
@@ -258,11 +258,11 @@ void main() {
       final host = activityHost(app);
       final first = await host.onFinish!(draft());
       final revision = app.insightsRevision.value;
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final second = await host.onFinish!(draft());
       expect(second.sessionId, first.sessionId);
       expect(second.duration, first.duration);
-      expect(await LocalDb.session(id), row);
+      expect(await SessionStore.byId(id), row);
       expect(await db.query('sessions'), hasLength(1));
       expect(await db.query('session_detail'), hasLength(1));
       expect(app.insightsRevision.value, revision);
@@ -290,7 +290,7 @@ void main() {
           end: start.add(const Duration(minutes: 4)),
         ),
       ]);
-      expect((await LocalDb.session(id))!['duration_min'], 3);
+      expect((await SessionStore.byId(id))!['duration_min'], 3);
     },
   );
 
@@ -344,7 +344,7 @@ void main() {
               speed: measured ? 2 : null,
             ),
         ];
-        await LocalDb.appendRoutePoints(id, [
+        await WorkoutRouteStore.appendPoints(id, [
           for (final p in points) p.toRow(id),
         ]);
         final saved = await activityHost(app).onFinish!(draft(type: 'running'));
@@ -357,7 +357,7 @@ void main() {
         expect(saved.lossM, measured ? 3.0 : null);
         expect(saved.splits, isNotEmpty);
         expect(saved.mileSplits, isNotEmpty);
-        expect(await LocalDb.routePoints(id), hasLength(4));
+        expect(await WorkoutRouteStore.points(id), hasLength(4));
       },
     );
   }
@@ -569,7 +569,10 @@ void main() {
       await flush(t);
       expect(find.byType(LiveShell), findsOneWidget);
       expect(find.byType(ActivitySummary), findsNothing);
-      expect((await t.runAsync(() => LocalDb.session(id)))!['status'], 'live');
+      expect(
+        (await t.runAsync(() => SessionStore.byId(id)))!['status'],
+        'live',
+      );
       expect(WorkoutClock.current!.end, isNull);
     },
   );
@@ -620,14 +623,14 @@ void main() {
         );
         expect(app.activeWorkout, isNull);
         expect(LiveDraft.current, isNull);
-        final row = (await t.runAsync(() => LocalDb.session(id)))!;
+        final row = (await t.runAsync(() => SessionStore.byId(id)))!;
         expect(row['status'], 'done');
         if (stoppedAt != null) {
           expect(row['end_ts'], stoppedAt.millisecondsSinceEpoch ~/ 1000);
         }
         expect(
           jsonDecode(
-            (await t.runAsync<String?>(() => LocalDb.sessionDetail(id)))!,
+            (await t.runAsync<String?>(() => SessionStore.detail(id)))!,
           ),
           typedExpected,
         );

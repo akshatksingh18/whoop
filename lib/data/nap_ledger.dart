@@ -11,7 +11,7 @@ class NapLedger {
   ) async {
     final rows = await SleepNapStore.edits(date);
     final key = 'nap_proposals:$date';
-    final cached = await LocalDb.baseline(key);
+    final cached = await MetricSeriesStore.baseline(key);
     final old = cached == null
         ? const []
         : jsonDecode(cached['payload_json'] as String);
@@ -38,7 +38,7 @@ class NapLedger {
     if (raw is List || proposals.isNotEmpty) {
       final encoded = jsonEncode(proposals);
       if (cached?['payload_json'] != encoded) {
-        await LocalDb.putBaseline(key, encoded);
+        await MetricSeriesStore.putBaseline(key, encoded);
       }
     }
     final edits = [

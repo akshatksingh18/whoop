@@ -41,7 +41,7 @@ void main() {
         const id = 'authored-background-route';
         final start = DateTime.now().subtract(const Duration(minutes: 2));
         try {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'start_ts': start.millisecondsSinceEpoch ~/ 1000,
             'type': 'running',
@@ -81,7 +81,7 @@ void main() {
             await Future<void>.delayed(const Duration(milliseconds: 5));
           }
           expect(tracker.pointCount, 2);
-          expect(await LocalDb.routePoints(id), isEmpty);
+          expect(await WorkoutRouteStore.points(id), isEmpty);
           if (refused) {
             await db.execute(
               "CREATE TRIGGER authored_refuse_background_route BEFORE INSERT ON workout_route BEGIN SELECT RAISE(ABORT, 'authored route refusal'); END",
@@ -91,7 +91,7 @@ void main() {
           for (var i = 0; i < 50; i++) {
             if (refused
                 ? tracker.error.value != null
-                : (await LocalDb.routePoints(id)).length == 2) {
+                : (await WorkoutRouteStore.points(id)).length == 2) {
               break;
             }
             await Future<void>.delayed(const Duration(milliseconds: 5));
@@ -101,13 +101,13 @@ void main() {
               tracker.error.value,
               'Route could not be saved. Try finishing again.',
             );
-            expect(await LocalDb.routePoints(id), isEmpty);
+            expect(await WorkoutRouteStore.points(id), isEmpty);
             expect(tracker.pointCount, 2);
             await db.execute('DROP TRIGGER authored_refuse_background_route');
             await tracker.flush();
             expect(tracker.error.value, isNull);
           }
-          final rows = await LocalDb.routePoints(id);
+          final rows = await WorkoutRouteStore.points(id);
           expect(rows.map((r) => r['seq']), [0, 1]);
           expect(rows.map((r) => r['ts_ms']), [
             now.millisecondsSinceEpoch,
@@ -115,10 +115,10 @@ void main() {
           ]);
           await app.pauseForBackground();
           await tracker.flush();
-          expect(await LocalDb.routePoints(id), rows);
+          expect(await WorkoutRouteStore.points(id), rows);
           expect(app.activeWorkout!.workoutId, id);
           expect(WorkoutClock.current!.end, isNull);
-          expect((await LocalDb.session(id))!['status'], 'live');
+          expect((await SessionStore.byId(id))!['status'], 'live');
           expect(geo.positions.hasListener, true);
           expect(app.deriving, false);
           expect(await db.query('day_result'), isEmpty);

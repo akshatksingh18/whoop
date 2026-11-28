@@ -34,7 +34,7 @@ void main() {
       payloadJson: jsonEncode({'date': day, ...payload}),
       windowJson: '{}',
     );
-    await LocalDb.putComputeFreshness(
+    await ComputeFreshnessStore.put(
       'today',
       jsonEncode({
         'today_day': day,
@@ -73,7 +73,7 @@ void main() {
         }
         clock.finish(to);
         await WorkoutClock.flushWrites();
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': 'other',
           'start_ts': ts,
@@ -97,7 +97,7 @@ void main() {
             'device_family': 'gen4',
           });
         }
-        final before = await LocalDb.session(id);
+        final before = await SessionStore.byId(id);
         final raw = await db.query('decoded_onehz');
         final timing = clock.toJson();
         final result = await repo.getWorkouts(range: 'all');
@@ -112,7 +112,7 @@ void main() {
               : 70,
         );
         expect((result['summary'] as Map)['count'], 1);
-        expect(await LocalDb.session(id), before);
+        expect(await SessionStore.byId(id), before);
         expect(await db.query('decoded_onehz'), raw);
         expect(clock.toJson(), timing);
         expect(
@@ -126,7 +126,7 @@ void main() {
     test(
       'COV-47 verified temperature retains relative provenance $known',
       () async {
-        await LocalDb.putMetricSeriesValue(day, 'skin_temp_adc', 1200);
+        await MetricSeriesStore.putValue(day, 'skin_temp_adc', 1200);
         await seed({
           'device_family': 'gen5',
           'coverage': {'hr_samples': 7200},
@@ -186,12 +186,12 @@ void main() {
             'calories': 'need_input:profile',
           },
         };
-        await LocalDb.putWakeDayFeatures(
+        await SleepIntermediateStore.putWakeFeatures(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode(wake),
         );
-        await LocalDb.putComputeFreshness(
+        await ComputeFreshnessStore.put(
           'today',
           jsonEncode({
             'today_day': day,
@@ -239,7 +239,7 @@ void main() {
         },
         'hr_stats': {'min': 55, 'max': 150, 'avg': 88},
       });
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'crossday',
         jsonEncode({
           'algo_version': kAlgoVersion,
@@ -261,8 +261,8 @@ void main() {
       final db = await LocalDb.instance;
       for (var offset = -2; offset <= 0; offset++) {
         final date = shiftDayLabel(day, offset);
-        await LocalDb.putMetricSeriesValue(date, 'rhr', 60.0 + offset);
-        await LocalDb.putMetricSeriesValue(date, 'worn_min', 100.0 + offset);
+        await MetricSeriesStore.putValue(date, 'rhr', 60.0 + offset);
+        await MetricSeriesStore.putValue(date, 'worn_min', 100.0 + offset);
         await db.insert('metric_series_version', {
           'date': date,
           'algo_version': offset == -2 ? kAlgoVersion - 1 : kAlgoVersion,
@@ -286,7 +286,7 @@ void main() {
         ),
         throwsStateError,
       );
-      expect(await LocalDb.session('synthetic-missing'), isNull);
+      expect(await SessionStore.byId('synthetic-missing'), isNull);
     },
   );
   test(

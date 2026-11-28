@@ -46,8 +46,8 @@ ResolvedDaySteps _ladder(
 
 void main() {
   // These cover the band ladder, which the app keeps off (phone-only steps).
-  setUpAll(() => LocalDb.debugBandSteps = true);
-  tearDownAll(() => LocalDb.debugBandSteps = false);
+  setUpAll(() => StepCoverageStore.debugBandSteps = true);
+  tearDownAll(() => StepCoverageStore.debugBandSteps = false);
 
   TestWidgetsFlutterBinding.ensureInitialized();
   late Database db;
@@ -96,7 +96,7 @@ void main() {
       expect(await engine.rebuildCrossDay(profile), 'needs_history');
       expect(
         jsonDecode(
-          (await LocalDb.baseline('crossday_status'))!['payload_json']
+          (await MetricSeriesStore.baseline('crossday_status'))!['payload_json']
               as String,
         )['days'],
         0,
@@ -123,7 +123,8 @@ void main() {
       final before = await db.query('day_result');
       expect(await engine.rebuildCrossDay(profile), 'ready');
       final bundle = jsonDecode(
-        (await LocalDb.baseline('crossday'))!['payload_json'] as String,
+        (await MetricSeriesStore.baseline('crossday'))!['payload_json']
+            as String,
       );
       expect(bundle['algo_version'], kAlgoVersion);
       expect(bundle['built_for_day'], todayLabel());
@@ -134,7 +135,7 @@ void main() {
       );
       expect(
         jsonDecode(
-          (await LocalDb.baseline('crossday_status'))!['payload_json']
+          (await MetricSeriesStore.baseline('crossday_status'))!['payload_json']
               as String,
         )['kind'],
         'ready',
@@ -147,7 +148,9 @@ void main() {
         expect(await engine.rebuildCrossDay(profile), 'failed');
         expect(
           jsonDecode(
-            (await LocalDb.baseline('crossday_status'))!['payload_json']
+            (await MetricSeriesStore.baseline(
+                  'crossday_status',
+                ))!['payload_json']
                 as String,
           )['kind'],
           'failed',
@@ -163,7 +166,7 @@ void main() {
     () async {
       final start = DateTime.now().subtract(const Duration(minutes: 20));
       for (final id in ['short', 'duplicate-short']) {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': tsOf(start),
           'end_ts': tsOf(start.add(const Duration(minutes: 6))),
@@ -195,7 +198,7 @@ void main() {
       );
       await c.persist();
       final ts = start.millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.replacePhoneCoverageForDay('2026-10-03', [
+      await StepCoverageStore.replacePhoneForDay('2026-10-03', [
         (startTs: ts, endTs: ts + 60, steps: 100),
         (startTs: ts + 60, endTs: ts + 120, steps: 100),
         (startTs: ts + 120, endTs: ts + 180, steps: 100),
@@ -222,12 +225,12 @@ void main() {
       final updated = {...profile.toMap(), 'weight_kg': 91.25};
       await ProfileHistory.record(profile.toMap(), updated, now: now);
       final ts = tsOf(start);
-      await LocalDb.replacePhoneCoverageForDay(day, [
+      await StepCoverageStore.replacePhoneForDay(day, [
         (startTs: ts, endTs: ts + 180, steps: 450),
         (startTs: ts + 180, endTs: ts + 780, steps: 1000),
       ]);
       final currentTs = tsOf(DateTime(now.year, now.month, now.day, 8));
-      await LocalDb.replacePhoneCoverageForDay(today, [
+      await StepCoverageStore.replacePhoneForDay(today, [
         (startTs: currentTs, endTs: currentTs + 600, steps: 2000),
       ]);
       await LocalDb.putDayResult(
@@ -237,7 +240,7 @@ void main() {
         series: {'steps': 9999},
         payloadJson: '{}',
       );
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'dated-run',
         'start_ts': ts,
         'end_ts': tsOf(end),
@@ -252,7 +255,7 @@ void main() {
         end: end,
         profile: profile,
       ).persist();
-      await LocalDb.appendRoutePoints('dated-run', [
+      await WorkoutRouteStore.appendPoints('dated-run', [
         for (var i = 0; i <= 180; i++)
           RoutePoint(
             seq: i,
@@ -284,7 +287,7 @@ void main() {
     'phone owns overlap; dense wrist-only time supplements it once',
     () async {
       final ts = DateTime(2026, 10, 3, 8).millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.replacePhoneCoverageForDay('2026-10-03', [
+      await StepCoverageStore.replacePhoneForDay('2026-10-03', [
         (startTs: ts, endTs: ts + 60, steps: 50),
         (startTs: ts + 60, endTs: ts + 120, steps: 0),
       ]);
@@ -314,14 +317,14 @@ void main() {
     () async {
       final a = DateTime(2026, 10, 3, 23, 59, 30),
           b = DateTime(2026, 10, 4, 0, 0, 30);
-      await LocalDb.addLiveCoverage(
+      await StepCoverageStore.add(
         a.millisecondsSinceEpoch ~/ 1000,
         b.millisecondsSinceEpoch ~/ 1000,
         101,
         '2026-10-03',
       );
-      final left = await LocalDb.resolvedStepsForDay('2026-10-03');
-      final right = await LocalDb.resolvedStepsForDay('2026-10-04');
+      final left = await StepCoverageStore.resolvedStepsForDay('2026-10-03');
+      final right = await StepCoverageStore.resolvedStepsForDay('2026-10-04');
       expect(left.total + right.total, 101);
       expect(left.total, 51);
       expect(right.total, 50);
@@ -334,7 +337,7 @@ void main() {
       final ts =
           DateTime(now.year, now.month, now.day, 8).millisecondsSinceEpoch ~/
           1000;
-      await LocalDb.replacePhoneCoverageForDay(day, [
+      await StepCoverageStore.replacePhoneForDay(day, [
         (startTs: ts, endTs: ts + 3600, steps: 10000),
       ]);
       final earned = await StepGoals.qualifying(initial: 8000);
@@ -553,7 +556,7 @@ void main() {
         final begin = id == 'original'
             ? start
             : start.add(const Duration(minutes: 1));
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': begin.millisecondsSinceEpoch ~/ 1000,
           'end_ts': end.millisecondsSinceEpoch ~/ 1000,
@@ -572,13 +575,15 @@ void main() {
               lng: -95,
             ),
         ];
-        await LocalDb.appendRoutePoints(id, [for (final p in pts) p.toRow(id)]);
+        await WorkoutRouteStore.appendPoints(id, [
+          for (final p in pts) p.toRow(id),
+        ]);
         if (id == 'duplicate') {
           await WorkoutClock(id, begin, end: end, profile: profile).persist();
         }
       }
       final ts = start.millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.replacePhoneCoverageForDay('2026-10-03', [
+      await StepCoverageStore.replacePhoneForDay('2026-10-03', [
         (startTs: ts, endTs: ts + 180, steps: 600),
       ]);
       final repo = LocalRepositoryImpl(getProfileMap: () => profile.toMap());
@@ -662,7 +667,7 @@ void main() {
         ),
       );
       final ts = DateTime(2026, 10, 3, 8).millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.replacePhoneCoverageForDay('2026-10-03', [
+      await StepCoverageStore.replacePhoneForDay('2026-10-03', [
         (startTs: ts, endTs: ts + 60, steps: 100),
       ]);
       await CalculationStore.write(
@@ -681,7 +686,10 @@ void main() {
         await LocalDb.importFromDbFile(file);
         expect((await db.query('body_weight')).single['kg'], 72.5);
         expect((await MyFoods.meals(db)).single.label, 'Meal');
-        expect((await LocalDb.resolvedStepsForDay('2026-10-03')).total, 100);
+        expect(
+          (await StepCoverageStore.resolvedStepsForDay('2026-10-03')).total,
+          100,
+        );
         expect(
           await CalculationStore.read('profile.calculation_history'),
           contains('72.5'),

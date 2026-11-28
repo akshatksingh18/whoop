@@ -44,7 +44,7 @@ const _tokenA = <int>[1, 2, 3, 4, 5, 6, 7, 8];
 const _tokenB = <int>[9, 9, 9, 9, 9, 9, 9, 9];
 
 /// A drain controller wired to [onCommit], the atomic-commit sink the real
-/// engine points at `LocalDb.commitSyncBatch`.
+/// engine points at `SyncLedgerStore.commitBatch`.
 DrainController _drainWith(
   CommitSyncBatchSink onCommit, {
   List<String>? logs,

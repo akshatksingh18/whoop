@@ -305,7 +305,7 @@ const String kCaloriesBasisLegacy = 'legacy';
 /// Score a manual window from its 1 Hz HR.
 ///
 /// [hrTs]/[hrBpm] are the substrate samples INSIDE the window (ascending,
-/// same length, `hr > 0` — exactly what `LocalDb.hrSamplesInRange` returns).
+/// same length, `hr > 0` — exactly what `SessionStore.hrSamplesInRange` returns).
 /// [restingHr] is the nightly/user RHR; [profile] supplies age/weight/sex.
 ///
 /// Strain uses the SAME published method as the day-level derivation so a

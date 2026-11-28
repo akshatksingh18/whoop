@@ -32,16 +32,16 @@ void main() {
   });
 
   test('no floor before enrollment — abstain, never a constant', () async {
-    expect(await LocalDb.getMovementFloor(), isNull);
+    expect(await MetricSeriesStore.movementFloor(), isNull);
   });
 
   test('a frozen floor round-trips exactly', () async {
-    await LocalDb.putMovementFloor(
+    await MetricSeriesStore.putMovementFloor(
       floorG: 0.4442,
       frozenOn: '2026-08-03',
       days: 18,
     );
-    final got = await LocalDb.getMovementFloor();
+    final got = await MetricSeriesStore.movementFloor();
     expect(got, isNotNull);
     expect(got!.floorG, closeTo(0.4442, 1e-9));
     expect(got.frozenOn, '2026-08-03');
@@ -49,17 +49,17 @@ void main() {
   });
 
   test('re-freezing overwrites rather than accumulating', () async {
-    await LocalDb.putMovementFloor(
+    await MetricSeriesStore.putMovementFloor(
       floorG: 0.40,
       frozenOn: '2026-07-01',
       days: 14,
     );
-    await LocalDb.putMovementFloor(
+    await MetricSeriesStore.putMovementFloor(
       floorG: 0.47,
       frozenOn: '2026-08-03',
       days: 30,
     );
-    final got = await LocalDb.getMovementFloor();
+    final got = await MetricSeriesStore.movementFloor();
     expect(got!.floorG, closeTo(0.47, 1e-9));
     expect(got.frozenOn, '2026-08-03');
   });
@@ -67,18 +67,18 @@ void main() {
   test('a degenerate persisted floor is rejected, not served', () async {
     // A zero/negative floor would pass EVERY minute. Reading it back as null
     // makes the estimator abstain, which is the honest failure mode.
-    await LocalDb.putMovementFloor(
+    await MetricSeriesStore.putMovementFloor(
       floorG: 0.0,
       frozenOn: '2026-08-03',
       days: 20,
     );
-    expect(await LocalDb.getMovementFloor(), isNull);
-    await LocalDb.putMovementFloor(
+    expect(await MetricSeriesStore.movementFloor(), isNull);
+    await MetricSeriesStore.putMovementFloor(
       floorG: -1.0,
       frozenOn: '2026-08-03',
       days: 20,
     );
-    expect(await LocalDb.getMovementFloor(), isNull);
+    expect(await MetricSeriesStore.movementFloor(), isNull);
   });
 
   test('the thaw policy only fires on a real change of scale', () {

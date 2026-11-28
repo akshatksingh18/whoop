@@ -180,7 +180,7 @@ void main() {
     // spikes to 200 / 210, and a 2 s LOW dropout to 40 plus a 1 s garbage 20 —
     // plus a spiked max_hr=160 already on the row (as the old live path left it).
     Future<void> seedSpikeSession() async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'w-spike',
         'start_ts': start,
         'end_ts': end,

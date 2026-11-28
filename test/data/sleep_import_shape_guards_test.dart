@@ -20,8 +20,8 @@ void main() {
       dayId: correctedDay,
       action: 'clear',
     );
-    await LocalDb.setCursor(recoveryCursor, 'retain-me');
-    await LocalDb.putMetricSeriesValue('2021-04-08', 'strain', 2.5);
+    await CursorStore.write(recoveryCursor, 'retain-me');
+    await MetricSeriesStore.putValue('2021-04-08', 'strain', 2.5);
     root = await (await Directory(
       'build/coverage-remainder/sleep-import-shape-guards',
     ).absolute.create(recursive: true)).createTemp('authored-');
@@ -60,7 +60,7 @@ void main() {
               'CREATE TABLE sync_cursor (name TEXT PRIMARY KEY, value TEXT, updated_at INTEGER NOT NULL)',
             );
             await d.insert('sync_cursor', {
-              'name': LocalDb.kFrozenHeadlineCursor,
+              'name': FrozenHeadlineStore.kCursorKey,
               'value': pin,
               'updated_at': 1,
             });
@@ -75,8 +75,8 @@ void main() {
   Future<Map<String, Object?>> evidence() async => {
     'intent': await SleepOverrideStore.correction(correctedDay),
     'revision': await SleepOverrideStore.correctionRevision(),
-    'metric': await LocalDb.metricSeries('strain'),
-    'cursor': await LocalDb.getCursor(recoveryCursor),
+    'metric': await MetricSeriesStore.series('strain'),
+    'cursor': await CursorStore.read(recoveryCursor),
     'days': await db.query('day_result'),
   };
 

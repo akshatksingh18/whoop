@@ -34,7 +34,7 @@ void main() {
             getProfileMap: () => {},
             onSessionChanged: () => published++,
           );
-          await LocalDb.putWorkoutSuggestion({
+          await WorkoutSuggestionStore.put({
             'id': 'authored-overlap',
             'date': '2021-04-06',
             'start_ts': from + 60,
@@ -44,7 +44,7 @@ void main() {
           });
           final original = await db.query('workout_suggestions');
           if (edit) {
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': 'authored-existing',
               'start_ts': from,
               'end_ts': to - 300,
@@ -89,7 +89,7 @@ void main() {
             );
           }
           expect(
-            await LocalDb.activeWorkoutSuggestions(),
+            await WorkoutSuggestionStore.active(),
             isEmpty,
             reason: 'The committed overlap is suppressed by the shared reader',
           );

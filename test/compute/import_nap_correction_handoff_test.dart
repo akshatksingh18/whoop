@@ -38,7 +38,7 @@ void main() {
             source: 'rejected',
           );
         }
-        await LocalDb.setCursor('authored-unrelated-retention', 'keep');
+        await CursorStore.write('authored-unrelated-retention', 'keep');
         final edits = await SleepNapStore.edits(day);
         const n = 720;
         final sub = Substrate(
@@ -98,7 +98,7 @@ void main() {
         expect(await SleepNapStore.edits(day), edits);
         expect(await LocalDb.dayResult(day), row);
         expect(await db.query('metric_series'), series);
-        expect(await LocalDb.getCursor('authored-unrelated-retention'), 'keep');
+        expect(await CursorStore.read('authored-unrelated-retention'), 'keep');
         expect(
           await db.rawQuery(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'raw_records'",

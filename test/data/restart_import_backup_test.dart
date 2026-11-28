@@ -69,7 +69,7 @@ void main() {
         );
         final old = AppState.forTesting()..user = profile.toMap();
         old.repo = LocalRepositoryImpl(getProfileMap: () => old.user);
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': start.millisecondsSinceEpoch ~/ 1000,
           'type': 'swimming',
@@ -126,7 +126,7 @@ void main() {
         await db.execute('DROP TRIGGER synthetic_finish_fail');
         await fresh.stopWorkout();
         final after = WorkoutClock.read(id, start);
-        final row = (await LocalDb.session(id))!;
+        final row = (await SessionStore.byId(id))!;
         for (final key in expected.keys) {
           expect(row[key], expected[key], reason: key);
         }

@@ -14,7 +14,7 @@ void main() {
       'five-minute foreground timer repeatStart=$repeatStart fires once and disposal preserves queued work',
       (t) async {
         final db = await LocalDb.instance;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'authored-unrelated-timer',
           'start_ts': 1617714000,
           'type': 'running',
@@ -22,7 +22,7 @@ void main() {
           'source': 'manual',
           'created_at': 1,
         });
-        final before = await LocalDb.session('authored-unrelated-timer');
+        final before = await SessionStore.byId('authored-unrelated-timer');
         final app = AppState.forTesting();
         var disposed = false;
         try {
@@ -33,7 +33,7 @@ void main() {
             AppState.foregroundRefreshEvery - const Duration(milliseconds: 1),
           );
           expect(app.insightsRevision.value, 0);
-          expect(await t.runAsync(() => LocalDb.computeJobs()), isEmpty);
+          expect(await t.runAsync(() => ComputeJobStore.jobs()), isEmpty);
           await t.pump(const Duration(milliseconds: 1));
           for (var i = 0; i < 35; i++) {
             await t.runAsync(
@@ -44,7 +44,7 @@ void main() {
           expect(t.takeException(), isNull);
           // The real refresh publishes exactly once.
           expect(app.insightsRevision.value, 1);
-          final jobs = (await t.runAsync(() => LocalDb.computeJobs()))!;
+          final jobs = (await t.runAsync(() => ComputeJobStore.jobs()))!;
           expect(jobs, hasLength(1));
           expect(jobs.single['type'], 'derive_light');
           expect(jobs.single['state'], 'queued');
@@ -57,9 +57,11 @@ void main() {
             () => Future<void>.delayed(const Duration(milliseconds: 30)),
           );
           expect(t.takeException(), isNull);
-          expect(await t.runAsync(() => LocalDb.computeJobs()), jobs);
+          expect(await t.runAsync(() => ComputeJobStore.jobs()), jobs);
           expect(
-            await t.runAsync(() => LocalDb.session('authored-unrelated-timer')),
+            await t.runAsync(
+              () => SessionStore.byId('authored-unrelated-timer'),
+            ),
             before,
           );
         } finally {

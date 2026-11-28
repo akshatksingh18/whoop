@@ -47,7 +47,7 @@ void main() {
                 10,
               ).millisecondsSinceEpoch ~/
               1000;
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-walk-$ago',
             'start_ts': start,
             'type': 'walking',

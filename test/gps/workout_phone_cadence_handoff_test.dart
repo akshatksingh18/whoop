@@ -92,9 +92,9 @@ void main() {
         await app.stopWorkout();
         expect(app.workoutCadence, isNull);
         expect(stops, 2);
-        expect((await LocalDb.session(id))!['status'], 'done');
+        expect((await SessionStore.byId(id))!['status'], 'done');
         expect(
-          (await LocalDb.session(id))!['steps'],
+          (await SessionStore.byId(id))!['steps'],
           isNull,
           reason: 'A rate reply alone is not a measured session step count',
         );
@@ -131,7 +131,7 @@ void main() {
       expect(app.workoutCadence, (spm: 120.0, source: 'Your phone'));
       await app.stopWorkout();
       expect(
-        (await LocalDb.session('authored-cadence-quality'))!['steps'],
+        (await SessionStore.byId('authored-cadence-quality'))!['steps'],
         isNull,
       );
     },

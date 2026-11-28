@@ -37,7 +37,7 @@ void main() {
         addTearDown(app.dispose);
         addTearDown(theme.dispose);
         final db = await LocalDb.instance;
-        await LocalDb.putMetricSeriesValue(todayLabel(), 'resting_hr', 62);
+        await MetricSeriesStore.putValue(todayLabel(), 'resting_hr', 62);
         final before = await db.query('metric_series');
         final data = HomeData(
           dayId: todayLabel(),

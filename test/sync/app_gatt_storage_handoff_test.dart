@@ -147,7 +147,7 @@ void main() {
     await app.endSession();
     expect(await wake(), RestoreWakeOutcome.notHandled);
     expect(app.paired!.remoteId, Peripheral.id.str);
-    expect(await LocalDb.getCursor('strap_trim'), isNull);
+    expect(await CursorStore.read('strap_trim'), isNull);
     expect(await (await LocalDb.instance).query('decoded_onehz'), isEmpty);
   });
   test(
@@ -179,7 +179,7 @@ void main() {
       expect(app.paired!.remoteId, Peripheral.id.str);
       expect(app.busy, false);
       expect(BandOwnership.foregroundIntent, false);
-      expect(await LocalDb.getCursor('strap_trim'), isNull);
+      expect(await CursorStore.read('strap_trim'), isNull);
       expect(await (await LocalDb.instance).query('decoded_onehz'), isEmpty);
     },
     timeout: const Timeout(Duration(seconds: 95)),
@@ -201,7 +201,7 @@ void main() {
           peripheral.beforeWrite = (_, inner) async {
             if (inner[2] == p.Cmd.historicalDataResult && inner[3] == 1) {
               expect(await db.query('decoded_onehz'), hasLength(1));
-              expect(await LocalDb.getCursor('strap_trim'), '8172635445362718');
+              expect(await CursorStore.read('strap_trim'), '8172635445362718');
               acks.add(List.of(inner));
             }
           };
@@ -248,7 +248,7 @@ void main() {
             );
             expect(acks, isEmpty);
             expect(await db.query('decoded_onehz'), isEmpty);
-            expect(await LocalDb.getCursor('strap_trim'), isNull);
+            expect(await CursorStore.read('strap_trim'), isNull);
             await app.endSession();
             await db.execute('DROP TRIGGER authored_app_commit_refusal');
             await connect();
@@ -271,7 +271,7 @@ void main() {
           expect(saved, hasLength(1));
           expect(saved.single['rec_ts'], recordedAt);
           expect(saved.single['device_family'], app.engine.state.generation);
-          expect(await LocalDb.getCursorInt('counter_hw'), 41);
+          expect(await CursorStore.readInt('counter_hw'), 41);
           // Stop the owning session before a held drain can schedule night workers.
           await app.endSession();
         },
@@ -314,7 +314,7 @@ void main() {
           final id = 'authored-walk-${band.type.name}';
           expect(await app.startWorkout(workoutId: id, type: 'walking'), true);
           await app.pauseForBackground();
-          final started = (await LocalDb.session(id))!['start_ts'];
+          final started = (await SessionStore.byId(id))!['start_ts'];
           await endLink();
           expect(app.activeWorkout!.workoutId, id);
           expect(WorkoutClock.current!.id, id);
@@ -326,11 +326,14 @@ void main() {
           );
           final through = DateTime.now();
           expect(
-            (await LocalDb.resolvedStepsForWindow(from, through)).total,
+            (await StepCoverageStore.resolvedStepsForWindow(
+              from,
+              through,
+            )).total,
             0,
           );
           const phoneSteps = 52;
-          await LocalDb.replacePhoneCoverageForDay(dayLabelAtSec(started), [
+          await StepCoverageStore.replacePhoneForDay(dayLabelAtSec(started), [
             (
               startTs: started,
               endTs: through.millisecondsSinceEpoch ~/ 1000,
@@ -338,12 +341,15 @@ void main() {
             ),
           ]);
           expect(
-            (await LocalDb.resolvedStepsForWindow(from, through)).total,
+            (await StepCoverageStore.resolvedStepsForWindow(
+              from,
+              through,
+            )).total,
             phoneSteps,
           );
           await app.stopWorkout();
           await WorkoutClock.flushWrites();
-          final saved = (await LocalDb.session(id))!;
+          final saved = (await SessionStore.byId(id))!;
           expect(saved['status'], 'done');
           expect(saved['start_ts'], started);
           expect(saved['steps'], greaterThan(0));

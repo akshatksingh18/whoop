@@ -33,6 +33,10 @@ void main() {
         final app = AppState.forTesting();
         addTearDown(app.dispose);
         final day = todayLabel();
+        // Pin the tape day to tomorrow: on the measurement weekday (Saturday
+        // by default) the row reads "Measurement day" instead, a path
+        // body_entry_decisions_test covers.
+        await BodyLogDb.setMeasureWeekday(DateTime.now().weekday % 7 + 1);
         if (recorded) await BodyLogDb.putWeight(day, 71, 'kg');
         await localizedPage(t, const Scaffold(body: TodayBodyRow()), app: app);
         await io(t);
@@ -110,7 +114,10 @@ void main() {
     await reveal(t, import);
     expect(t.widget<SetRow>(import).onTap, isNotNull);
     expect(await t.runAsync(quarantine.readAsBytes), bytes);
-    expect(await t.runAsync(LocalDb.schemaHealth), containsPair('ok', true));
+    expect(
+      await t.runAsync(DiagnosticsStore.schemaHealth),
+      containsPair('ok', true),
+    );
     expect(t.takeException(), isNull);
   });
 }

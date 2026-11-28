@@ -132,7 +132,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
       return;
     }
     try {
-      final rows = await LocalDb.activeWorkoutSuggestions();
+      final rows = await WorkoutSuggestionStore.active();
       if (!mounted) return;
       final all = [for (final r in rows) ?Suggestion.from(r)];
       setState(() => _items = focusSuggestions(all, widget.focusId));
@@ -162,7 +162,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
       // overlap: those minutes are already in the log, so the bout is spent.
       message = e.error.message;
       try {
-        await LocalDb.dismissWorkoutSuggestion(s.id);
+        await WorkoutSuggestionStore.dismiss(s.id);
         app?.bumpInsights();
       } catch (_) {
         /* the reason is already on screen */
@@ -182,7 +182,7 @@ class _WorkoutSuggestionScreenState extends State<WorkoutSuggestionScreen> {
     final app = appOf(context);
     setState(() => _busy = true);
     try {
-      await LocalDb.dismissWorkoutSuggestion(s.id);
+      await WorkoutSuggestionStore.dismiss(s.id);
       app?.bumpInsights();
     } catch (_) {
       if (mounted) {
@@ -923,7 +923,7 @@ Future<List<Suggestion>> activeSuggestions() async {
   if (!await autoDetectOn()) return const [];
   try {
     return [
-      for (final r in await LocalDb.activeWorkoutSuggestions())
+      for (final r in await WorkoutSuggestionStore.active())
         ?Suggestion.from(r),
     ];
   } catch (_) {

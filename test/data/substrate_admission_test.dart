@@ -128,9 +128,9 @@ Future<String> _everyAdmissionRead(int lo, int hi) async {
     'samples=${(await readTypedDecodedFixture(lo, hi)).map((s) => '${s.tsEpoch}:${s.hr}').toList()}',
   );
   out.writeln('latest=${(await LocalDb.latestSample())?.hr}');
-  out.writeln('hr=${await LocalDb.hrSamplesInRange(lo, hi)}');
-  out.writeln('sessionStats=${await LocalDb.sessionHrStats(lo, hi)}');
-  out.writeln('sessionHr=${await LocalDb.sessionHrSamplesBySession(lo, hi)}');
+  out.writeln('hr=${await SessionStore.hrSamplesInRange(lo, hi)}');
+  out.writeln('sessionStats=${await SessionStore.hrStats(lo, hi)}');
+  out.writeln('sessionHr=${await SessionStore.hrSamplesBySession(lo, hi)}');
   out.writeln('dataEdge=${await LocalDb.lastDecodedRecTs()}');
   return out.toString();
 }
@@ -197,7 +197,7 @@ void main() {
     test('an unverified adapter moves NO number, anywhere', () async {
       const lo = 1786690000;
       const hi = lo + 9;
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [for (var i = 0; i < 10; i++) _raw(lo + i, i + 1)],
         [for (var i = 0; i < 10; i++) _band(lo + i, i + 1)],
       );
@@ -268,7 +268,10 @@ void main() {
         'source': null,
       });
       expect(
-        (await LocalDb.hrSamplesInRange(lo, hi)).where((r) => r['hr'] == 199),
+        (await SessionStore.hrSamplesInRange(
+          lo,
+          hi,
+        )).where((r) => r['hr'] == 199),
         isNotEmpty,
         reason: 'the admission gate filters on `source`, and nothing else',
       );

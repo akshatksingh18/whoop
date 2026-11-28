@@ -22,8 +22,8 @@ void main() {
         const previousSignature = 'authored-prior-baseline';
         expect(DayClock.days, isEmpty);
         final nowOffset = DateTime.now().timeZoneOffset.inMinutes;
-        await LocalDb.setCursor('baseline_sig', previousSignature);
-        await LocalDb.putBaseline(
+        await CursorStore.write('baseline_sig', previousSignature);
+        await MetricSeriesStore.putBaseline(
           'tz_travel_guard',
           jsonEncode({'offset_min': nowOffset + jump}),
         );
@@ -46,7 +46,7 @@ void main() {
           'hr': 65,
           'device_family': 'gen4',
         });
-        final guard = await LocalDb.baseline('tz_travel_guard');
+        final guard = await MetricSeriesStore.baseline('tz_travel_guard');
         final result = await LocalDb.dayResult(day);
         final samples = await db.query('decoded_onehz');
         final series = await db.query('metric_series');
@@ -60,8 +60,8 @@ void main() {
           );
           expect(count, 0);
           expect(engine.running, isFalse);
-          expect(await LocalDb.getCursor('baseline_sig'), previousSignature);
-          expect(await LocalDb.baseline('tz_travel_guard'), guard);
+          expect(await CursorStore.read('baseline_sig'), previousSignature);
+          expect(await MetricSeriesStore.baseline('tz_travel_guard'), guard);
           expect(await LocalDb.dayResult(day), result);
           expect(await db.query('decoded_onehz'), samples);
           expect(await db.query('metric_series'), series);

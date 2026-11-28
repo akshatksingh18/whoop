@@ -55,7 +55,7 @@ void coldBootPreferenceRecovery(
       };
       SharedPreferences.setMockInitialValues(values);
       await t.runAsync(
-        () => LocalDb.setCursor('authored-cold-recovery', 'retain exactly'),
+        () => CursorStore.write('authored-cold-recovery', 'retain exactly'),
       );
       final before = await t.runAsync(
         () async => (await LocalDb.instance).query('sync_cursor'),

@@ -448,7 +448,7 @@ void main() {
         ),
         isEmpty,
       );
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
       expect(await LocalDb.thinRawArchiveBefore(2000000000000), 0);
       await LocalDb.close();
       expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
@@ -514,7 +514,7 @@ void main() {
       expect(seconds.map((r) => r['hr']), [60, 80]);
       final beats = await db.query('decoded_rr', orderBy: 'rr_ts_ms');
       expect(beats.map((r) => r['rr_ms']), [710, 730]);
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
       await LocalDb.close();
       expect(await _openThroughLocalDb(name), LocalDb.schemaVersion);
       expect(
@@ -569,7 +569,7 @@ void main() {
       final after = await db.query('decoded_onehz', orderBy: 'rec_ts');
       expect(after.last['hr'], isNull);
       expect(after.last['synthetic_future_channel'], 7.5);
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
     },
   );
 
@@ -625,7 +625,7 @@ void main() {
       final version = await _openThroughLocalDb(name);
       expect(version, LocalDb.schemaVersion);
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -686,7 +686,7 @@ void main() {
     final version = await _openThroughLocalDb(name);
     expect(version, LocalDb.schemaVersion);
 
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
 
     // The ladder's real work still happened: derived_day carried across.
@@ -752,9 +752,9 @@ void main() {
     await _openThroughLocalDb(name);
 
     // Every legacy row is now in the live table…
-    expect(await LocalDb.getCursor('strap_trim'), 'aabbccdd');
-    expect(await LocalDb.getCursorInt('counter_hw'), 1200000);
-    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1780000000);
+    expect(await CursorStore.read('strap_trim'), 'aabbccdd');
+    expect(await CursorStore.readInt('counter_hw'), 1200000);
+    expect(await CursorStore.readInt('rec_ts_hw'), 1780000000);
     // …and the orphan is gone, so this can never run again.
     final db = await LocalDb.instance;
     final left = await db.rawQuery(
@@ -786,7 +786,7 @@ void main() {
       );
 
       await _openThroughLocalDb(name);
-      expect(await LocalDb.getCursor('strap_trim'), 'feedface');
+      expect(await CursorStore.read('strap_trim'), 'feedface');
       final db = await LocalDb.instance;
       expect(
         await db.rawQuery(
@@ -1099,7 +1099,7 @@ void main() {
           orderBy: 'name',
         );
         expect(before, hasLength(2));
-        expect(await LocalDb.getCursor('synthetic-zero'), '0');
+        expect(await CursorStore.read('synthetic-zero'), '0');
         expect(before.last['updated_at'], renamed ? 7 : isPositive);
         expect(before.first['value'], isNull);
         expect(before.first['updated_at'], isPositive);
@@ -1157,7 +1157,7 @@ void main() {
     expect((await JournalStore.metricsForDay('2026-06-01'))['mood']!.value, 4);
     expect(await JournalStore.fieldDefs(), isEmpty);
 
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 
@@ -1181,7 +1181,7 @@ void main() {
     expect((await db.query('lab_result')).single['value'], 42.0);
     expect(await db.query('lab_marker_def'), isEmpty);
 
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 
@@ -1241,7 +1241,7 @@ void main() {
       );
       expect(await SleepNapStore.editDays(), {'2026-06-01'});
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -1349,7 +1349,7 @@ void main() {
         isEmpty,
       );
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -1441,7 +1441,7 @@ void main() {
       );
       expect((await rawArchiveCounts()).count, 6);
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -1543,7 +1543,7 @@ void main() {
       isNot(contains('idx_decoded_onehz_counter')),
     );
 
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 
@@ -1602,7 +1602,7 @@ void main() {
       expect(rows[1]['hr'], isNull);
       expect(rows[2]['hr'], 71);
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -1723,7 +1723,7 @@ void main() {
         isEmpty,
       );
 
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
     },
   );
@@ -1918,13 +1918,16 @@ void main() {
     final rows = await db.query('live_coverage', orderBy: 'id ASC');
     expect([for (final r in rows) r['steps']], [3000, 3000]);
     expect([for (final r in rows) r['device_id']], ['', '']);
-    expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 0);
+    expect(
+      (await StepCoverageStore.resolvedStepsForDay('2026-08-06')).total,
+      0,
+    );
 
     // The device store exists, is empty, and is not silently absent from the
     // health check — the observation table's rung is the worked example.
     expect(await LocalDb.deviceRow(), isNull);
     expect(await (await LocalDb.instance).query('device'), isEmpty);
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 

@@ -51,7 +51,7 @@ void main() {
       () async {
         final n = mode == 'enrolling' || mode == 'thin-refreeze' ? 4 : 14;
         for (var i = 1; i <= n; i++) {
-          await LocalDb.putMetricSeriesValue(
+          await MetricSeriesStore.putValue(
             shifted(-(mode == 'backfill' ? i + 40 : i)),
             'dyn_p90',
             .1,
@@ -60,7 +60,7 @@ void main() {
         if (mode == 'thin-refreeze' ||
             mode == 'refreeze' ||
             mode == 'backfill') {
-          await LocalDb.putMovementFloor(
+          await MetricSeriesStore.putMovementFloor(
             floorG: .04,
             frozenOn: shifted(mode == 'backfill' ? 2 : -400),
             days: 14,
@@ -79,7 +79,7 @@ void main() {
         );
         expect(done, [day]);
         expect(engine.running, false);
-        final stored = await LocalDb.getMovementFloor();
+        final stored = await MetricSeriesStore.movementFloor();
         if (mode == 'enrolling') {
           expect(stored, isNull);
         } else if (mode == 'thin-refreeze' || mode == 'backfill') {

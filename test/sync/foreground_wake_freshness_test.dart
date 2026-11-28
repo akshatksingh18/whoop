@@ -98,7 +98,7 @@ void main() {
         expect(app.deriving, false);
         expect(app.derivePending, false);
         expect(await LocalDb.syncLedgerEntry(), isNull);
-        expect(await LocalDb.getCursor('strap_trim'), isNull);
+        expect(await CursorStore.read('strap_trim'), isNull);
       },
     );
   }
@@ -137,7 +137,7 @@ void main() {
       expect((await LocalDb.syncLedgerEntry())!['status'], 'complete');
       expect(app.logLines.first, contains('1 records pulled'));
       expect(
-        await LocalDb.getCursor('strap_trim'),
+        await CursorStore.read('strap_trim'),
         isNull,
         reason: 'A transport report must never fabricate a durable trim token',
       );

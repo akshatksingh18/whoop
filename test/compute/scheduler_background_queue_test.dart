@@ -62,7 +62,7 @@ void main() {
       );
       expect(s.snapshot()['background'], true);
       expect(
-        await LocalDb.computeJobs(state: 'queued', limit: 10),
+        await ComputeJobStore.jobs(state: 'queued', limit: 10),
         hasLength(1),
       );
       expect(logs.where((s) => s.contains('backgrounded')), hasLength(1));
@@ -70,8 +70,8 @@ void main() {
       s.setBackground(false);
       await until(() => runs.length == 1 && !s.running);
       expect(runs, [DeriveJobKind.heavy]);
-      expect(await LocalDb.computeJobs(state: 'queued', limit: 10), isEmpty);
-      expect(await LocalDb.computeJobs(state: 'failed', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'queued', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'failed', limit: 10), isEmpty);
       expect(logs.where((s) => s.contains('foregrounded')), hasLength(1));
     },
   );
@@ -88,7 +88,7 @@ void main() {
       await until(() => runs == 1 && !s.running);
       expect(s.snapshot()['background'], false);
       expect(DeriveStop.generation, gen);
-      expect(await LocalDb.computeJobs(state: 'queued', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'queued', limit: 10), isEmpty);
     },
   );
 
@@ -135,7 +135,7 @@ void main() {
       await until(() => runs.isNotEmpty);
       await until(() => !s.running);
       expect(runs, [DeriveJobKind.heavy]);
-      expect(await LocalDb.computeJobs(state: 'queued'), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'queued'), isEmpty);
     },
   );
 
@@ -155,30 +155,30 @@ void main() {
           }
         },
       );
-      await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+      await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
       await s.init();
       await s.markStoredData();
       await entered.future.timeout(const Duration(seconds: 2));
-      final claimed = (await LocalDb.computeJobs(
+      final claimed = (await ComputeJobStore.jobs(
         state: 'running',
         limit: 10,
       )).single;
       s.setBackground(true);
       release.complete();
       await until(() => !s.running && s.pendingLight);
-      final queued = (await LocalDb.computeJobs(
+      final queued = (await ComputeJobStore.jobs(
         state: 'queued',
         limit: 10,
       )).single;
       expect(queued['id'], claimed['id']);
       expect(queued['attempts'], 0);
-      expect(await LocalDb.computeJobs(state: 'failed', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'failed', limit: 10), isEmpty);
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(runs, 1);
       s.setBackground(false);
       await until(() => runs == 2 && !s.running);
-      expect(await LocalDb.computeJobs(state: 'queued', limit: 10), isEmpty);
-      final values = await LocalDb.metricSeries('steps');
+      expect(await ComputeJobStore.jobs(state: 'queued', limit: 10), isEmpty);
+      final values = await MetricSeriesStore.series('steps');
       expect(values.single['value'], 1234);
     },
   );
@@ -195,27 +195,30 @@ void main() {
     expect(s.offloadActive, true);
     expect(s.snapshot()['background'], false);
     expect(runs, 0);
-    expect(await LocalDb.computeJobs(state: 'queued', limit: 10), hasLength(1));
+    expect(
+      await ComputeJobStore.jobs(state: 'queued', limit: 10),
+      hasLength(1),
+    );
     s.setOffloadActive(false);
     await until(() => runs == 1 && !s.running);
-    expect(await LocalDb.computeJobs(state: 'queued', limit: 10), isEmpty);
+    expect(await ComputeJobStore.jobs(state: 'queued', limit: 10), isEmpty);
   });
 
   test(
     'restart recovers the old claim but keeps it durable until foreground',
     () async {
-      await LocalDb.enqueueDeriveJob(
+      await ComputeJobStore.enqueueDerive(
         type: 'derive_heavy',
         reason: 'authored restart',
       );
-      final prior = (await LocalDb.takeNextComputeJob())!;
+      final prior = (await ComputeJobStore.takeNext())!;
       final runs = <DeriveJobKind>[];
       final s = make(run: ({required kind}) async => runs.add(kind));
       s.setBackground(true);
       await s.init();
       await Future<void>.delayed(const Duration(milliseconds: 30));
       expect(runs, isEmpty);
-      final queued = (await LocalDb.computeJobs(
+      final queued = (await ComputeJobStore.jobs(
         state: 'queued',
         limit: 10,
       )).single;
@@ -224,8 +227,8 @@ void main() {
       s.setBackground(false);
       await until(() => runs.length == 1 && !s.running);
       expect(runs, [DeriveJobKind.heavy]);
-      expect(await LocalDb.computeJobs(state: 'queued', limit: 10), isEmpty);
-      expect(await LocalDb.computeJobs(state: 'failed', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'queued', limit: 10), isEmpty);
+      expect(await ComputeJobStore.jobs(state: 'failed', limit: 10), isEmpty);
     },
   );
 }

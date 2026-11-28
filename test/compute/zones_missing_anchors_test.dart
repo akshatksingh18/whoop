@@ -36,7 +36,7 @@ void main() {
           finalized: true,
         );
         if (mode != 'age-missing') {
-          await LocalDb.putMetricSeriesValue(
+          await MetricSeriesStore.putValue(
             todayLabel(),
             'hr_ceiling_bpm',
             mode == 'ceiling-short' ? 180 : 196,
@@ -48,7 +48,7 @@ void main() {
             ? 14
             : 0;
         for (var i = 0; i < days; i++) {
-          await LocalDb.putMetricSeriesValue(ago(i), 'rhr', 50);
+          await MetricSeriesStore.putValue(ago(i), 'rhr', 50);
         }
         final z = await repo.getZones();
         expect(z['distribution'], isNull);

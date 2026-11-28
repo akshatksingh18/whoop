@@ -47,7 +47,7 @@ void main() {
             theme.dispose();
           });
           final db = await LocalDb.instance;
-          await LocalDb.putMetricSeriesValue(day, 'steps', 1234);
+          await MetricSeriesStore.putValue(day, 'steps', 1234);
           final before = await db.query('metric_series');
           await localizedPage(
             t,

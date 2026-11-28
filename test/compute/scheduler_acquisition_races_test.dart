@@ -51,12 +51,12 @@ void main() {
           addTearDown(s.dispose);
           s.setOffloadActive(true);
           await s.init();
-          await LocalDb.enqueueDeriveJob(
+          await ComputeJobStore.enqueueDerive(
             type: heavy ? 'derive_heavy' : 'derive_light',
             reason: 'authored acquisition race',
           );
           await s.init();
-          final before = (await LocalDb.computeJobs(state: 'queued')).single;
+          final before = (await ComputeJobStore.jobs(state: 'queued')).single;
           var intercepted = false;
           void closeGate() {
             intercepted = true;
@@ -78,7 +78,7 @@ void main() {
           // Wait for the actual requeue, not just the acquisition callback.
           Map<String, dynamic>? queued;
           for (var i = 0; i < 300; i++) {
-            final rows = await LocalDb.computeJobs(state: 'queued');
+            final rows = await ComputeJobStore.jobs(state: 'queued');
             if (rows.isNotEmpty && rows.single['attempts'] == 0) {
               queued = rows.single;
               break;
@@ -90,8 +90,8 @@ void main() {
           expect(queued['reason'], before['reason']);
           expect(queued['type'], before['type']);
           expect(runs, isEmpty);
-          expect(await LocalDb.computeJobs(state: 'running'), isEmpty);
-          expect(await LocalDb.computeJobs(state: 'failed'), isEmpty);
+          expect(await ComputeJobStore.jobs(state: 'running'), isEmpty);
+          expect(await ComputeJobStore.jobs(state: 'failed'), isEmpty);
           switch (gate) {
             case 'background':
               s.setBackground(false);
@@ -105,7 +105,7 @@ void main() {
           }
           await until(() => runs.length == 1 && !s.running);
           expect(runs, [heavy ? DeriveJobKind.heavy : DeriveJobKind.light]);
-          expect(await LocalDb.computeJobs(), isEmpty);
+          expect(await ComputeJobStore.jobs(), isEmpty);
         },
       );
     }
@@ -131,15 +131,15 @@ void main() {
         await s.init();
         await s.markStoredData();
         await until(() => errors.isNotEmpty && !s.running);
-        final failed = (await LocalDb.computeJobs(state: 'failed')).single;
+        final failed = (await ComputeJobStore.jobs(state: 'failed')).single;
         expect(failed['attempts'], 1);
         expect(failed['reason'], contains('authored worker refusal'));
-        expect(await LocalDb.computeJobs(state: 'running'), isEmpty);
+        expect(await ComputeJobStore.jobs(state: 'running'), isEmpty);
         await s.markStoredData();
         await until(() => runs == 2 && !s.running);
-        expect(await LocalDb.computeJobs(state: 'queued'), isEmpty);
+        expect(await ComputeJobStore.jobs(state: 'queued'), isEmpty);
         expect(
-          (await LocalDb.computeJobs(state: 'failed')).single['id'],
+          (await ComputeJobStore.jobs(state: 'failed')).single['id'],
           failed['id'],
         );
         expect(errors, hasLength(1));

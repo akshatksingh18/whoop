@@ -81,7 +81,7 @@ class _SessionDestinationState extends State<SessionDestination> {
         if (mounted) setState(() => _screen = const WorkoutScreen());
         return;
       }
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final activity = storedActivity(
         row?['type']?.toString() ?? app.activeWorkout?.type ?? '',
       );
@@ -1417,7 +1417,7 @@ Future<ActivityResult> _finishSession(
   if (id != null) {
     if (draft.private) await app.repo?.setWorkoutPrivate(id, true);
     final typed = enteredDetailJson(draft);
-    if (typed != null) await LocalDb.putSessionDetail(id, typed);
+    if (typed != null) await SessionStore.putDetail(id, typed);
   }
   // Idempotent: on a retry the session is already stopped and this is a no-op.
   await app.stopWorkout();
@@ -1450,7 +1450,7 @@ Future<ActivityResult> _finishSession(
 
 /// A finished session's saved end, or null while it is still live.
 Future<DateTime?> _sessionEnd(String id) async {
-  final row = await LocalDb.session(id);
+  final row = await SessionStore.byId(id);
   if (row == null || row['status'] == 'live') return null;
   final te = (row['end_ts'] as num?)?.toInt();
   return te == null ? null : DateTime.fromMillisecondsSinceEpoch(te * 1000);
@@ -1605,7 +1605,7 @@ List<double> _decodeZoneMinutes(Object? raw) => [
 Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   var out = w.toResult();
   try {
-    out = withEnteredDetail(out, await LocalDb.sessionDetail(w.id));
+    out = withEnteredDetail(out, await SessionStore.detail(w.id));
   } catch (_) {
     // The typed detail is extra; the session still opens without it.
   }
@@ -1681,7 +1681,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
   // TS-09 — the session's own rating. `getWorkout` is the derived bundle and
   // does not carry the column, so this is one primary-key read of the row.
   try {
-    final rpe = (await LocalDb.session(w.id))?['rpe'] as num?;
+    final rpe = (await SessionStore.byId(w.id))?['rpe'] as num?;
     if (rpe != null) out = out.copyWith(rpe: rpe.toDouble());
   } catch (_) {
     // An unrated session and an unreadable row both render as unrated.
@@ -1702,7 +1702,7 @@ Future<ActivityResult> _detailOf(AppState app, _PastWorkout w) async {
 Future<ActivityResult> _withCalculation(ActivityResult r, AppState app) async {
   final id = r.sessionId, repo = app.repo;
   if (id == null || repo == null) return r;
-  final row = await LocalDb.session(id);
+  final row = await SessionStore.byId(id);
   if (row?['end_ts_fabricated'] == 1) return r;
   final end = (row?['end_ts'] as num?)?.toInt();
   if (end == null) return r;
@@ -1761,7 +1761,7 @@ Future<ActivityResult> _withMotion(ActivityResult r) async {
   final type = r.activity.typeKey;
   if (id == null || !(isRunType(type) || isWalkType(type))) return r;
   try {
-    final row = await LocalDb.session(id);
+    final row = await SessionStore.byId(id);
     final end = (row?['end_ts'] as num?)?.toInt();
     if (end == null) return r;
     final w = await sessionMotionWindow(
@@ -1818,7 +1818,7 @@ Future<ActivityResult> _withPhone(ActivityResult r) async {
   final type = r.activity.typeKey;
   if (id == null || !(isRunType(type) || isWalkType(type))) return r;
   try {
-    final row = await LocalDb.session(id);
+    final row = await SessionStore.byId(id);
     final end = (row?['end_ts'] as num?)?.toInt();
     if (end == null) return r;
     final w = await sessionMotionWindow(

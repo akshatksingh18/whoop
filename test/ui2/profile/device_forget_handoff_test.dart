@@ -26,7 +26,7 @@ void main() {
         'Authored band',
         generation: 'gen4',
       );
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'authored-history',
         'start_ts': 1617714000,
         'type': 'running',
@@ -34,7 +34,7 @@ void main() {
         'source': 'manual',
         'created_at': 1,
       });
-      final session = await LocalDb.session('authored-history');
+      final session = await SessionStore.byId('authored-history');
       final identity = await LocalDb.deviceRow();
       expect(session, isNotNull);
       expect(identity?['remote_id'], 'authored-device');
@@ -67,7 +67,7 @@ void main() {
       expect(await t.runAsync(PairedDevice.load), isNull);
       expect(find.byType(DeviceDetail), findsNothing);
       expect(find.text('Closed test page'), findsOneWidget);
-      expect(await LocalDb.session('authored-history'), session);
+      expect(await SessionStore.byId('authored-history'), session);
       expect(t.takeException(), isNull);
     },
     timeout: const Timeout(Duration(seconds: 30)),

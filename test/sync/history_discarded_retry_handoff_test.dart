@@ -37,7 +37,7 @@ void main() {
           engine.debugInstallFakeLink(
             band: band,
             onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-                LocalDb.commitSyncBatch(
+                SyncLedgerStore.commitBatch(
                   raw,
                   samples,
                   trimToken: token,
@@ -90,7 +90,7 @@ void main() {
             await historyIO(t, () => !engine.offloadActive);
             expect(count(p.Cmd.abortHistoricalTransmits), 1);
             expect(
-              await t.runAsync(() => LocalDb.getCursor('strap_trim')),
+              await t.runAsync(() => CursorStore.read('strap_trim')),
               isNull,
             );
             now = now.add(
@@ -126,7 +126,7 @@ void main() {
             expect(before, hasLength(lateRecord && !band.isGen5 ? 1 : 0));
             expect(count(p.Cmd.historicalDataResult), 0);
             expect(
-              await t.runAsync(() => LocalDb.getCursor('strap_trim')),
+              await t.runAsync(() => CursorStore.read('strap_trim')),
               isNull,
             );
             expect(count(p.Cmd.abortHistoricalTransmits), 1);
@@ -147,7 +147,7 @@ void main() {
             final raw = (await t.runAsync(() => db!.query('decoded_onehz')))!;
             expect(raw, hasLength(2));
             expect(
-              await t.runAsync(() => LocalDb.getCursor('strap_trim')),
+              await t.runAsync(() => CursorStore.read('strap_trim')),
               '8172635445362718',
             );
             final ack = writes.singleWhere(

@@ -170,13 +170,13 @@ Future<List<Map<String, dynamic>>> loadRecoveryMovers(
   final fromDay = DateTime(today.year, today.month, today.day - days);
   final from = dayLabelOf(fromDay);
   final outcome = _byDate(
-    await LocalDb.metricSeries(outcomeKey, measuredOnly: true),
+    await MetricSeriesStore.series(outcomeKey, measuredOnly: true),
     from,
   );
   if (outcome.length < 2 * kMoverMinEach) return const [];
   final db = await LocalDb.instance;
   final food = await NutritionDb.entriesSince(db, _prev(from));
-  final sessions = await LocalDb.sessionsInRange(
+  final sessions = await SessionStore.inRange(
     localDayStartSec(_prev(from))!,
     now.millisecondsSinceEpoch ~/ 1000,
   );
@@ -188,21 +188,21 @@ Future<List<Map<String, dynamic>>> loadRecoveryMovers(
     // B88-11: exposures use the same measured-only filter as the outcome, so
     // another vendor's imported day can never tag a morning.
     strain: _byDate(
-      await LocalDb.metricSeries('strain', measuredOnly: true),
+      await MetricSeriesStore.series('strain', measuredOnly: true),
       _prev(from),
     ),
     steps: _byDate(
-      await LocalDb.metricSeries('steps', measuredOnly: true),
+      await MetricSeriesStore.series('steps', measuredOnly: true),
       _prev(from),
     ),
     onsetSec: _byDate(
-      await LocalDb.metricSeries('sleep_onset_sec', measuredOnly: true),
+      await MetricSeriesStore.series('sleep_onset_sec', measuredOnly: true),
       from,
     ),
     kcalTarget: target('kcal_target'),
     proteinTarget: target('protein_target'),
     wornMin: _byDate(
-      await LocalDb.metricSeries('worn_min', measuredOnly: true),
+      await MetricSeriesStore.series('worn_min', measuredOnly: true),
       _prev(from),
     ),
     dayMarks: await NutritionDb.dayMarks(db, _prev(from)),

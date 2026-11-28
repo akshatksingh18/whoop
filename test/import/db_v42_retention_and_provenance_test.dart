@@ -83,7 +83,7 @@ void main() {
     await _useFreshDb('v42_ambient_test.db');
     expect(await _columns('decoded_onehz'), contains('ambient_raw'));
 
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [_raw(1000, 1), _raw(1001, 2), _raw(1002, 3)],
       [
         _sample(1000, 1, ambient: 412), // a real reading
@@ -260,7 +260,7 @@ void main() {
       await LocalDb.insertEvent(proto.EventId.wristOn, old + 100, 'aa02');
       await LocalDb.insertEvent(33, old + 50, 'aa03');
 
-      await LocalDb.pruneDecodedBeforeRecTs(old + 10000);
+      await StorageRetentionStore.pruneDecodedBefore(old + 10000);
 
       expect(
         await _count('SELECT COUNT(*) FROM band_events WHERE event_id = 33'),
@@ -274,7 +274,7 @@ void main() {
       );
       // The point of keeping them: the off-wrist span detectNaps rejects against
       // is still reconstructable long after the substrate is gone.
-      expect(await LocalDb.wristOffSpans(old - 10, old + 200), [
+      expect(await StepCoverageStore.wristOffSpans(old - 10, old + 200), [
         [old, old + 100],
       ]);
     },
@@ -318,7 +318,7 @@ void main() {
       ),
     );
 
-    await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
+    await StorageRetentionStore.pruneDecodedBefore(cutoffSec);
 
     // 600 rows at 1-in-60 ⇒ counters 0, 60, … 540.
     expect(
@@ -344,7 +344,7 @@ void main() {
       1,
     );
     // Idempotent: running it again takes nothing more.
-    await LocalDb.pruneDecodedBeforeRecTs(cutoffSec);
+    await StorageRetentionStore.pruneDecodedBefore(cutoffSec);
     expect(await _count('SELECT COUNT(*) FROM raw_archive'), 12);
   });
 
@@ -478,7 +478,7 @@ void main() {
           '${sw2.elapsedMilliseconds} ms',
         );
 
-        final health = await LocalDb.schemaHealth();
+        final health = await DiagnosticsStore.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');
       },
       timeout: const Timeout(Duration(minutes: 15)),
@@ -541,7 +541,7 @@ void main() {
           );
         }
 
-        final health = await LocalDb.schemaHealth();
+        final health = await DiagnosticsStore.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');
       },
       timeout: const Timeout(Duration(minutes: 15)),

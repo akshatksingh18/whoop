@@ -115,7 +115,7 @@ void main() {
         engine.debugInstallFakeLink(
           onWrite: (_) async => false,
           onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raw,
                 samples,
                 trimToken: token,
@@ -146,7 +146,7 @@ void main() {
         ),
       );
       await until(() => !engine.offloadActive, attempts: 1200);
-      expect(await LocalDb.getCursor('strap_trim'), isNull);
+      expect(await CursorStore.read('strap_trim'), isNull);
     } finally {
       await engine.disconnect();
     }

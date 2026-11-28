@@ -54,8 +54,8 @@ void main() {
             readiness: 72,
           );
           final before = await LocalDb.dayResult(date);
-          await LocalDb.refreshComputeFreshness();
-          final row = (await LocalDb.computeFreshness('today'))!;
+          await ComputeFreshnessStore.refresh();
+          final row = (await ComputeFreshnessStore.read('today'))!;
           final state = jsonDecode(row['payload_json'] as String) as Map;
           expect(state['activity_state'], 'ready');
           expect(
@@ -127,7 +127,7 @@ void main() {
         await const NotificationPrefs(quietEnabled: false).save();
         Future<void> runQueued() async {
           expect(await LocalDb.lastDecodedRecTs(), isNull);
-          await LocalDb.enqueueDeriveJob(
+          await ComputeJobStore.enqueueDerive(
             type: 'derive_heavy',
             reason: 'authored restored job',
           );
@@ -175,7 +175,7 @@ void main() {
           expect(await LocalDb.dayResult(date), before);
           final freshness =
               jsonDecode(
-                    (await LocalDb.computeFreshness('today'))!['payload_json']
+                    (await ComputeFreshnessStore.read('today'))!['payload_json']
                         as String,
                   )
                   as Map;

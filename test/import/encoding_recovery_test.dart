@@ -93,7 +93,7 @@ void main() {
           outcome.readError,
           refuse ? contains('synthetic vendor refusal') : isNull,
         );
-        expect(await LocalDb.session('accepted.db'), isNotNull);
+        expect(await SessionStore.byId('accepted.db'), isNotNull);
         expect(
           (await JournalStore.entries()).single['note'],
           'Authored retained note',

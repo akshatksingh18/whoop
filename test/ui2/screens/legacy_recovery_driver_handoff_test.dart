@@ -109,7 +109,7 @@ void main() {
           expect(find.byType(ReadinessDetail), findsOneWidget);
           expect(await db.query('day_result'), raw);
           expect(await db.query('metric_series', orderBy: 'date,key'), series);
-          expect(await LocalDb.frozenHeadline(), isNull);
+          expect(await FrozenHeadlineStore.read(), isNull);
           expect(t.takeException(), isNull);
         },
       );

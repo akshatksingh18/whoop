@@ -55,7 +55,7 @@ void main() {
         expect(await engine.rescanRecent(const Profile()), 0);
         expect(log.any((s) => s.contains('FAILED/skipped')), isTrue);
         expect(
-          await LocalDb.getCursor('baseline_sig'),
+          await CursorStore.read('baseline_sig'),
           isNull,
           reason:
               'An unsuccessful day must not acknowledge the baseline change',
@@ -64,7 +64,7 @@ void main() {
         await db.execute('DROP TRIGGER synthetic_rescan_refusal');
       }
       expect(await engine.rescanRecent(const Profile()), 1);
-      expect(await LocalDb.getCursor('baseline_sig'), isNotNull);
+      expect(await CursorStore.read('baseline_sig'), isNotNull);
       expect(await engine.rescanRecent(const Profile()), 0);
       expect(engine.running, isFalse);
     },

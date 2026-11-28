@@ -60,7 +60,7 @@ void main() {
         ? DateTime(2021, 4, 6, 8)
         : DateTime.now().subtract(const Duration(minutes: 40));
     final ts = at.millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'synthetic-saved',
       'type': 'running',
       'start_ts': ts,
@@ -79,7 +79,7 @@ void main() {
     ) async {
       final at = DateTime(2021, 4, 6, 8).millisecondsSinceEpoch ~/ 1000;
       for (var i = 0; i < n; i++) {
-        await LocalDb.putWorkoutSuggestion({
+        await WorkoutSuggestionStore.put({
           'id': 'synthetic-effort-$i',
           'date': '2021-04-06',
           'start_ts': at + i * 3600,
@@ -113,10 +113,7 @@ void main() {
       );
       Navigator.of(t.element(find.byType(WorkoutSuggestionScreen))).pop();
       await io(t);
-      expect(
-        (await t.runAsync(LocalDb.activeWorkoutSuggestions))!,
-        hasLength(n),
-      );
+      expect((await t.runAsync(WorkoutSuggestionStore.active))!, hasLength(n));
     });
   }
   testWidgets(
@@ -139,7 +136,7 @@ void main() {
   testWidgets('a selected strain day reaches that day rather than today', (
     t,
   ) async {
-    await LocalDb.putMetricSeriesValue(todayLabel(), 'strain', 3.5);
+    await MetricSeriesStore.putValue(todayLabel(), 'strain', 3.5);
     await open(t, const WorkoutScreen());
     final chart = find.byWidgetPredicate(
       (w) => w is Scrubber && w.label == 'Strain, last 7 days',

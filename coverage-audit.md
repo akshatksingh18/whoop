@@ -5,8 +5,10 @@
 after the 3r removals and the first two `LocalDb` store splits, with no exclusions, new skips or
 retired-feature activation. Main `e04a7c13` (journal split) missed only `day_steps.dart`
 471–472, a loop that blanks hours after now and never runs when CI starts at 23:xx; a
-tomorrow-dated test in `localized_day_controls_test.dart` now runs it at any hour, and the next
-publication re-proves 100%. The detailed proof below was first established on main `aacaed47`. 100% instrumented Dart execution certifies no radio, sensor or OS
+tomorrow-dated test in `localized_day_controls_test.dart` now runs it at any hour. Main
+`c775d428`'s run failed only `today_body_recovery_navigation_test.dart`, which broke on
+Saturdays (the default tape day turns the row into "Measurement day") and now pins the tape day
+to tomorrow; the next publication re-proves 100%. The detailed proof below was first established on main `aacaed47`. 100% instrumented Dart execution certifies no radio, sensor or OS
 delivery; native and physical acceptance stay separate (`bugs.md`, `todo.md`).
 
 ## Current proof

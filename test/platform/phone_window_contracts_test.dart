@@ -60,7 +60,7 @@ void main() {
           WorkoutClock.current = clock;
         } else {
           await clock.persist();
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': clock.id,
             'type': 'walking',
             'start_ts': sec(start),
@@ -95,7 +95,7 @@ void main() {
         final db = await LocalDb.instance;
         final rows = await db.query('live_coverage');
         expect(rows, hasLength(windows.length));
-        expect(await LocalDb.phoneStepsForDay('2021-04-06'), 1440);
+        expect(await StepCoverageStore.phoneStepsForDay('2021-04-06'), 1440);
       },
     );
   }
@@ -138,7 +138,7 @@ void main() {
                 steps: 10,
               ),
           ];
-          await LocalDb.replacePhoneCoverageForDay(
+          await StepCoverageStore.replacePhoneForDay(
             '2021-04-06',
             windows,
             distances: {
@@ -151,7 +151,7 @@ void main() {
             calls.length,
             platform == TargetPlatform.iOS && !distanceKnown ? 24 : 0,
           );
-          expect(await LocalDb.phoneStepsForDay('2021-04-06'), 240);
+          expect(await StepCoverageStore.phoneStepsForDay('2021-04-06'), 240);
         },
       );
     }
@@ -160,7 +160,7 @@ void main() {
     test(
       'iOS $response abandons the replacement and retains prior measured rows',
       () async {
-        await LocalDb.replacePhoneCoverageForDay('2021-04-06', [
+        await StepCoverageStore.replacePhoneForDay('2021-04-06', [
           (
             startTs: sec(day),
             endTs: sec(day.add(const Duration(hours: 1))),
@@ -180,7 +180,7 @@ void main() {
   test(
     'a refused legacy purge keeps both original rows and its unfinished marker retryable',
     () async {
-      await LocalDb.replacePhoneCoverageForDay('2021-04-06', [
+      await StepCoverageStore.replacePhoneForDay('2021-04-06', [
         (
           startTs: sec(day),
           endTs: sec(day.add(const Duration(hours: 1))),
@@ -198,7 +198,7 @@ void main() {
         ));
         final prefs = await SharedPreferences.getInstance();
         expect(prefs.getBool('phone_steps_healthstore_purged'), isNot(true));
-        expect(await LocalDb.phoneStepsForDay('2021-04-06'), 20);
+        expect(await StepCoverageStore.phoneStepsForDay('2021-04-06'), 20);
       } finally {
         await db.execute('DROP TRIGGER authored_purge_refusal');
       }
@@ -212,7 +212,7 @@ void main() {
         ),
         true,
       );
-      expect(await LocalDb.phoneStepsForDay('2021-04-06'), 0);
+      expect(await StepCoverageStore.phoneStepsForDay('2021-04-06'), 0);
     },
   );
 }

@@ -35,7 +35,7 @@ void main() {
           final end = start.add(const Duration(minutes: 4));
           final trace = <double?>[120, null, 145, 130];
           final zones = [0, 1, 2, 1, 0];
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'start_ts': start.millisecondsSinceEpoch ~/ 1000,
             'type': 'swimming',
@@ -73,7 +73,7 @@ void main() {
           }
           final revision = app.insightsRevision.value;
           await app.stopWorkout();
-          final row = (await LocalDb.session(id))!;
+          final row = (await SessionStore.byId(id))!;
           expect(row['status'], 'done');
           expect(row['end_ts'], end.millisecondsSinceEpoch ~/ 1000);
           expect(row['duration_min'], 4);
@@ -110,13 +110,13 @@ void main() {
             );
             // The done row is authoritative; stale recovery metadata cannot
             // re-open it or overwrite a later explicit edit on the next launch.
-            await LocalDb.putSession({...row, 'rpe': 8});
+            await SessionStore.put({...row, 'rpe': 8});
             await db.execute('DROP TRIGGER authored_cleanup_refusal');
             final fresh = AppState.forTesting();
             addTearDown(fresh.dispose);
             await fresh.debugReconcileOrphanedLiveWorkout();
             expect(fresh.activeWorkout, isNull);
-            expect((await LocalDb.session(id))!['rpe'], 8);
+            expect((await SessionStore.byId(id))!['rpe'], 8);
           } else {
             expect(restored.pendingSession, isNull);
           }

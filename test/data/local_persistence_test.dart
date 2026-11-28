@@ -64,7 +64,7 @@ void main() {
   test('workout session round-trip (live → finalized done)', () async {
     const id = 'w1700000000000';
     final startSec = 1700000000;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': startSec,
       'end_ts': null,
@@ -73,12 +73,12 @@ void main() {
       'source': 'manual',
       'created_at': startSec * 1000,
     });
-    var s = await LocalDb.session(id);
+    var s = await SessionStore.byId(id);
     expect(s, isNotNull);
     expect(s!['status'], 'live');
 
     // Finalize: same id, REPLACE with stats.
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': startSec,
       'end_ts': startSec + 1800,
@@ -92,19 +92,19 @@ void main() {
       'source': 'manual',
       'created_at': startSec * 1000,
     });
-    s = await LocalDb.session(id);
+    s = await SessionStore.byId(id);
     expect(s!['status'], 'done');
     expect(s['calories'], 220.0);
     expect(s['max_hr'], 171);
     expect(s['duration_min'], 30);
 
     // In-range query finds it; type setter mutates it; delete removes it.
-    final inRange = await LocalDb.sessionsInRange(startSec - 10, startSec + 10);
+    final inRange = await SessionStore.inRange(startSec - 10, startSec + 10);
     expect(inRange.any((r) => r['id'] == id), isTrue);
-    await LocalDb.setSessionType(id, 'cycling');
-    expect((await LocalDb.session(id))!['type'], 'cycling');
-    await LocalDb.deleteSession(id);
-    expect(await LocalDb.session(id), isNull);
+    await SessionStore.setType(id, 'cycling');
+    expect((await SessionStore.byId(id))!['type'], 'cycling');
+    await SessionStore.delete(id);
+    expect(await SessionStore.byId(id), isNull);
   });
 
   test('cycle logs read oldest first', () async {
@@ -164,7 +164,7 @@ void main() {
       expect(ranged, hasLength(1));
       expect(ranged.first.counter, 424242);
 
-      final stats = await LocalDb.rawStats();
+      final stats = await DiagnosticsStore.rawStats();
       expect(stats['decoded_onehz'], greaterThanOrEqualTo(1));
       expect(stats['decoded_rr'], greaterThanOrEqualTo(2));
     },
@@ -295,14 +295,14 @@ void main() {
   // isolate — two test files both opening LocalDb's fixed whoop.db path race
   // on the on-disk sqlite file.
   test('sync cursor set/get round-trip + int parse', () async {
-    expect(await LocalDb.getCursor('strap_trim'), isNull);
-    await LocalDb.setCursor('strap_trim', 'deadbeef0102');
-    expect(await LocalDb.getCursor('strap_trim'), 'deadbeef0102');
-    await LocalDb.setCursor('strap_trim', 'cafe'); // REPLACE, not duplicate
-    expect(await LocalDb.getCursor('strap_trim'), 'cafe');
-    await LocalDb.setCursor('rec_ts_hw', '1750000000');
-    expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000000);
-    expect(await LocalDb.getCursorInt('missing'), isNull);
+    expect(await CursorStore.read('strap_trim'), isNull);
+    await CursorStore.write('strap_trim', 'deadbeef0102');
+    expect(await CursorStore.read('strap_trim'), 'deadbeef0102');
+    await CursorStore.write('strap_trim', 'cafe'); // REPLACE, not duplicate
+    expect(await CursorStore.read('strap_trim'), 'cafe');
+    await CursorStore.write('rec_ts_hw', '1750000000');
+    expect(await CursorStore.readInt('rec_ts_hw'), 1750000000);
+    expect(await CursorStore.readInt('missing'), isNull);
   });
 
   test(
@@ -315,7 +315,7 @@ void main() {
         capturedAt: 1750000000000,
         recTs: recTs,
       );
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [raw(10, 1750000100), raw(11, 1750000200)],
         [
           Sample(tsEpoch: 1750000100, counter: 10, hr: 60),
@@ -325,16 +325,16 @@ void main() {
       );
       final counts = await LocalDb.counts();
       expect(counts['raw'], greaterThanOrEqualTo(2));
-      expect(await LocalDb.getCursorInt('counter_hw'), 11);
-      expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200);
-      expect(await LocalDb.getCursor('strap_trim'), 'aa00bb11cc22dd33');
+      expect(await CursorStore.readInt('counter_hw'), 11);
+      expect(await CursorStore.readInt('rec_ts_hw'), 1750000200);
+      expect(await CursorStore.read('strap_trim'), 'aa00bb11cc22dd33');
     },
   );
 
   test(
     'high-water only advances (a re-delivered older batch never regresses it)',
     () async {
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [
           RawRecord(
             counter: 5,
@@ -347,12 +347,9 @@ void main() {
         [Sample(tsEpoch: 1750000050, counter: 5, hr: 59)],
         trimToken: 'beef',
       );
-      expect(await LocalDb.getCursorInt('counter_hw'), 11); // unchanged
-      expect(await LocalDb.getCursorInt('rec_ts_hw'), 1750000200); // unchanged
-      expect(
-        await LocalDb.getCursor('strap_trim'),
-        'beef',
-      ); // always latest ACK
+      expect(await CursorStore.readInt('counter_hw'), 11); // unchanged
+      expect(await CursorStore.readInt('rec_ts_hw'), 1750000200); // unchanged
+      expect(await CursorStore.read('strap_trim'), 'beef'); // always latest ACK
     },
   );
 }

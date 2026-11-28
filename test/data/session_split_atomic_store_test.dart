@@ -36,7 +36,7 @@ const _new = <Map<String, Object?>>[
 Future<int> _write({
   List<Map<String, Object?>>? splits = _new,
   bool guarded = true,
-}) => LocalDb.setSessionScores(
+}) => SessionStore.setScores(
   _id,
   strain: 8,
   calories: 200,
@@ -58,7 +58,7 @@ void main() {
   setUp(() async {
     await resetCoverageStore();
     for (final id in [_id, _other]) {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': _start,
         'end_ts': _end,
@@ -73,9 +73,9 @@ void main() {
         'trace_json': '{"old":true}',
         'trace_samples': 12,
       });
-      await LocalDb.putWorkoutSplits(id, _old);
+      await WorkoutRouteStore.putSplits(id, _old);
     }
-    await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+    await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
   });
   tearDown(() async {
     final db = await LocalDb.instance;
@@ -88,7 +88,7 @@ void main() {
     Map<String, Object?>? owner,
     List<Map<String, Object?>> splits,
   ) async {
-    expect(await LocalDb.session(_other), owner);
+    expect(await SessionStore.byId(_other), owner);
     expect(await splitRows(_other), splits);
     final metrics = await (await LocalDb.instance).query('metric_series');
     expect(metrics, hasLength(1));
@@ -101,21 +101,21 @@ void main() {
         'refused split $refusedKm with prior=$prior rolls back trace and every child;retry is idempotent',
         () async {
           final db = await LocalDb.instance;
-          if (!prior) await LocalDb.putWorkoutSplits(_id, []);
-          final before = await LocalDb.session(_id);
+          if (!prior) await WorkoutRouteStore.putSplits(_id, []);
+          final before = await SessionStore.byId(_id);
           final splits = await splitRows(_id);
-          final other = await LocalDb.session(_other);
+          final other = await SessionStore.byId(_other);
           final otherSplits = await splitRows(_other);
           await db.execute(
             "CREATE TRIGGER authored_split_refusal BEFORE INSERT ON workout_split WHEN NEW.session_id = '$_id' AND NEW.km = $refusedKm BEGIN SELECT RAISE(ABORT, 'authored split refusal'); END",
           );
           await expectLater(_write(), throwsA(isA<DatabaseException>()));
-          expect(await LocalDb.session(_id), before);
+          expect(await SessionStore.byId(_id), before);
           expect(await splitRows(_id), splits);
           await unchangedOther(other, otherSplits);
           await db.execute('DROP TRIGGER authored_split_refusal');
           expect(await _write(), 1);
-          final saved = (await LocalDb.session(_id))!;
+          final saved = (await SessionStore.byId(_id))!;
           expect(saved['trace_json'], '{"fresh":true}');
           expect(saved['trace_samples'], 240);
           expect(saved['avg_hr'], 140);
@@ -126,7 +126,7 @@ void main() {
             for (final r in _new) {'session_id': _id, ...r},
           ]);
           expect(await _write(), 1);
-          expect(await LocalDb.session(_id), saved);
+          expect(await SessionStore.byId(_id), saved);
           expect(await splitRows(_id), frozen);
           await unchangedOther(other, otherSplits);
         },
@@ -145,7 +145,7 @@ void main() {
     expect(await db.query('workout_split'), splits);
     await db.execute('DROP TRIGGER authored_session_refusal');
     expect(await _write(), 1);
-    expect((await LocalDb.session(_id))!['trace_samples'], 240);
+    expect((await SessionStore.byId(_id))!['trace_samples'], 240);
   });
   for (final changed in ['start', 'end', 'status', 'deleted']) {
     test(
@@ -153,7 +153,7 @@ void main() {
       () async {
         final db = await LocalDb.instance;
         if (changed == 'deleted') {
-          await LocalDb.deleteSession(_id);
+          await SessionStore.delete(_id);
         } else {
           await db.update(
             'sessions',
@@ -179,7 +179,7 @@ void main() {
     () async {
       final before = await splitRows(_id);
       expect(
-        await LocalDb.setSessionScores(
+        await SessionStore.setScores(
           _id,
           strain: 8,
           calories: 200,
@@ -188,7 +188,7 @@ void main() {
         ),
         1,
       );
-      final row = (await LocalDb.session(_id))!;
+      final row = (await SessionStore.byId(_id))!;
       expect(row['avg_hr'], 130);
       expect(row['trace_json'], '{"old":true}');
       expect(row['trace_samples'], 12);
@@ -199,11 +199,11 @@ void main() {
   test(
     'an explicit empty replacement clears only the matching owner',
     () async {
-      final other = await LocalDb.session(_other);
+      final other = await SessionStore.byId(_other);
       final otherSplits = await splitRows(_other);
       expect(await _write(splits: []), 1);
       expect(await splitRows(_id), isEmpty);
-      expect((await LocalDb.session(_id))!['trace_samples'], 240);
+      expect((await SessionStore.byId(_id))!['trace_samples'], 240);
       await unchangedOther(other, otherSplits);
     },
   );

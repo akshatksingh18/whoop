@@ -69,15 +69,15 @@ void main() {
   test('recalculates only known inputs, keeps the rest, skips vendors', () async {
     final repo = LocalRepositoryImpl(getProfileMap: _profile);
     // A gross pre-Build 90 lift: MET-only active energy is (3.5 − 1) × 75 × 1 h.
-    await LocalDb.putSession(
+    await SessionStore.put(
       row('lift', type: 'weight_training', calories: 400, avgHr: 120),
     );
     // No MET and no heart rate: nothing to recalculate from.
-    await LocalDb.putSession(
+    await SessionStore.put(
       row('unknown', type: 'general_workout', calories: 300, offsetHours: 2),
     );
     // A vendor's own figure is never replaced by ours.
-    await LocalDb.putSession(
+    await SessionStore.put(
       row(
         'whoop_1',
         type: 'weight_training',
@@ -87,7 +87,7 @@ void main() {
       ),
     );
     // Already active: left exactly as it is.
-    await LocalDb.putSession(
+    await SessionStore.put(
       row(
         'done',
         type: 'weight_training',
@@ -99,23 +99,23 @@ void main() {
 
     expect(await repo.repairSessionCalorieBasis(), 1);
 
-    final lift = (await LocalDb.session('lift'))!;
+    final lift = (await SessionStore.byId('lift'))!;
     expect(lift['calories'], closeTo(187.5, 1e-9));
     expect(lift['calories_basis'], kCaloriesBasisActive);
 
-    final unknown = (await LocalDb.session('unknown'))!;
+    final unknown = (await SessionStore.byId('unknown'))!;
     expect(unknown['calories'], 300, reason: 'kept as recorded, not guessed');
     expect(unknown['calories_basis'], kCaloriesBasisLegacy);
 
-    final vendor = (await LocalDb.session('whoop_1'))!;
+    final vendor = (await SessionStore.byId('whoop_1'))!;
     expect(vendor['calories'], 500);
     expect(vendor['calories_basis'], isNull);
 
-    final active = (await LocalDb.session('done'))!;
+    final active = (await SessionStore.byId('done'))!;
     expect(active['calories'], 123);
 
     // Idempotent: every examined row now has a basis.
     expect(await repo.repairSessionCalorieBasis(), 0);
-    expect((await LocalDb.session('unknown'))!['calories'], 300);
+    expect((await SessionStore.byId('unknown'))!['calories'], 300);
   });
 }

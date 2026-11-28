@@ -121,7 +121,7 @@ void main() {
       ('private', 'synthetic secret', 1, 'done'),
       ('live', 'synthetic unfinished', 0, 'live'),
     ]) {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': at,
         'end_ts': at + 1200,

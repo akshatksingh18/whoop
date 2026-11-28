@@ -40,7 +40,7 @@ void main() {
           'local_profile_json': raw,
           'authored-unrelated': 'keep',
         });
-        await LocalDb.setCursor('authored-recovery', 'keep');
+        await CursorStore.write('authored-recovery', 'keep');
         final db = await LocalDb.instance;
         final before = await db.query('sync_cursor');
         try {

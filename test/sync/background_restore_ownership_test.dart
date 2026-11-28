@@ -157,7 +157,7 @@ void main() {
         expect(calls, hasLength(2));
         expect(calls.last.arguments, connected ? true : 'authored-band-b');
         expect(band.calls, isEmpty);
-        expect(await LocalDb.getCursor('strap_trim'), isNull);
+        expect(await CursorStore.read('strap_trim'), isNull);
       },
     );
   }

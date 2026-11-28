@@ -39,7 +39,7 @@ void main() {
         );
         addTearDown(earlier.dispose);
         addTearDown(winner.dispose);
-        await LocalDb.enqueueDeriveJob(
+        await ComputeJobStore.enqueueDerive(
           type: 'derive_${kind.name}',
           reason: 'authored restart',
         );

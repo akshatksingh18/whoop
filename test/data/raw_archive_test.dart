@@ -60,7 +60,7 @@ void main() {
         reason: 'undecodable_rec_v99',
       );
 
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [raw],
         <Sample?>[sample],
         trimToken: 'aabbccddeeff0011',
@@ -77,8 +77,8 @@ void main() {
       expect((counts['decoded_onehz'] ?? 0) >= 1, isTrue);
 
       // Trim cursor advanced in the SAME commit (what the ACK echoes verbatim).
-      expect(await LocalDb.getCursor('strap_trim'), 'aabbccddeeff0011');
-      expect(await LocalDb.getCursorInt('counter_hw'), 1001);
+      expect(await CursorStore.read('strap_trim'), 'aabbccddeeff0011');
+      expect(await CursorStore.readInt('counter_hw'), 1001);
     },
   );
 
@@ -92,7 +92,7 @@ void main() {
         capturedAt: 1750000099999,
         reason: 'undecodable_rec_v99',
       );
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         const <RawRecord>[],
         const <Sample?>[],
         trimToken: 'aabbccddeeff0022',
@@ -102,7 +102,7 @@ void main() {
       final stats = await rawArchiveCounts();
       expect(stats.count, 1);
       // …but the trim cursor still advanced (this chunk was ACK-safe).
-      expect(await LocalDb.getCursor('strap_trim'), 'aabbccddeeff0022');
+      expect(await CursorStore.read('strap_trim'), 'aabbccddeeff0022');
     },
   );
 

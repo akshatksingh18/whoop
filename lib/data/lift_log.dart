@@ -1225,7 +1225,7 @@ Future<Map<String, String>> proposeLiftLinks(List<LiftWorkout> imported) async {
   final to = imported
       .map((w) => w.endedAt ?? w.startedAt)
       .reduce((a, b) => a.isAfter(b) ? a : b);
-  final rows = await LocalDb.sessionsInRange(sec(from) - 6 * 3600, sec(to));
+  final rows = await SessionStore.inRange(sec(from) - 6 * 3600, sec(to));
   final db = await LocalDb.instance;
   final taken = {
     for (final r in await db.query(

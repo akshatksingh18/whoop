@@ -62,7 +62,7 @@ void main() {
     app = AppState.forTesting()
       ..hasBackupPassphrase = true
       ..user = {'weight_kg': 70.0};
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'authored-requested-reset',
       'type': 'walking',
       'status': 'done',

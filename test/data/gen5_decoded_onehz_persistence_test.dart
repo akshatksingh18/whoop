@@ -124,7 +124,7 @@ void main() {
         recTs: recTs,
       );
 
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       final rows = await db.query(
@@ -197,7 +197,7 @@ void main() {
         capturedAt: unix * 1000,
         recTs: unix,
       );
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       final rows = await db.query(
@@ -238,7 +238,7 @@ void main() {
         final sample = sampleFromGen5Historical(parseGen5Historical(inner));
         expect(sample, isNotNull);
 
-        await LocalDb.commitSyncBatch(
+        await SyncLedgerStore.commitBatch(
           [
             RawRecord(
               counter: counter,
@@ -283,7 +283,7 @@ void main() {
         skinTempRaw: -1234,
       );
       final sample = sampleFromGen5Historical(parseGen5Historical(inner));
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [
           RawRecord(
             counter: counter,
@@ -332,7 +332,7 @@ void main() {
         recTs: ts,
       );
 
-      await LocalDb.commitSyncBatch([raw], [preferred]);
+      await SyncLedgerStore.commitBatch([raw], [preferred]);
 
       final db = await LocalDb.instance;
       final rows = await db.query(
@@ -371,7 +371,7 @@ void main() {
         recTs: ts,
       );
 
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       final rows = await db.query(
@@ -402,7 +402,7 @@ void main() {
         capturedAt: ts * 1000,
         recTs: ts,
       );
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       expect(
@@ -437,7 +437,7 @@ void main() {
         capturedAt: ts * 1000,
         recTs: ts,
       );
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       // Still out of the 1 Hz substrate — no accel, no optics.
@@ -479,7 +479,7 @@ void main() {
         hr: 66,
         rrIntervalsMs: const [910],
       );
-      await LocalDb.commitSyncBatch([raw], [sample]);
+      await SyncLedgerStore.commitBatch([raw], [sample]);
 
       final db = await LocalDb.instance;
       final rows = await db.query(

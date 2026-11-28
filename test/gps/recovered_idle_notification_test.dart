@@ -35,7 +35,7 @@ void main() {
       seen.add(event);
       return allow;
     };
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,
       'status': 'live',
@@ -88,7 +88,7 @@ void main() {
   }
 
   Future<void> preserved(Map<String, dynamic>? row, String? clock) async {
-    expect(await LocalDb.session(id), row);
+    expect(await SessionStore.byId(id), row);
     expect(await CalculationStore.read('workout.clock.$id'), clock);
     expect(WorkoutClock.current!.end, isNull);
     expect(WorkoutClock.current!.profile!.weightKg, 70);
@@ -110,7 +110,7 @@ void main() {
               ),
             );
           }
-          final row = await LocalDb.session(id);
+          final row = await SessionStore.byId(id);
           final clock = await CalculationStore.read('workout.clock.$id');
           final logs = await (await LocalDb.instance).query('lift_log');
           final app = await recover();
@@ -158,7 +158,7 @@ void main() {
       await LiftLogDb.save(
         LiftWorkout(id: 'authored-active-log', startedAt: start, sessionId: id),
       );
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final clock = await CalculationStore.read('workout.clock.$id');
       final logs = await (await LocalDb.instance).query('lift_log');
       final app = await recover();
@@ -183,7 +183,7 @@ void main() {
   test(
     'a refused Lift Log read is isolated and the retained session can ask after recovery',
     () async {
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final clock = await CalculationStore.read('workout.clock.$id');
       final db = await LocalDb.instance;
       final app = await recover();

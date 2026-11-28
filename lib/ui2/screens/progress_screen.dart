@@ -236,7 +236,7 @@ class ProgressData {
 
     final sessions = await read(
       'Workouts',
-      LocalDb.sessionsInRange(0, now.millisecondsSinceEpoch ~/ 1000),
+      SessionStore.inRange(0, now.millisecondsSinceEpoch ~/ 1000),
       <Map<String, dynamic>>[],
     );
     return ProgressData(

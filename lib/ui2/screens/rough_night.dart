@@ -221,7 +221,7 @@ Future<RoughNight?> loadRoughNight(
   final series = <String, Map<String, double>>{};
   for (final key in const [_kRhr, _kRmssd, _kDip]) {
     series[key] = {
-      for (final r in await LocalDb.metricSeries(key))
+      for (final r in await MetricSeriesStore.series(key))
         if (r['date'] is String &&
             r['value'] is num &&
             !imported.contains(r['date']))

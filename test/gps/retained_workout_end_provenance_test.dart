@@ -23,7 +23,7 @@ void main() {
                 .millisecondsSinceEpoch ~/
             1000;
         final end = start + 45 * 60;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': 'yoga',
           'status': 'live',
@@ -33,7 +33,7 @@ void main() {
           'end_ts_fabricated': fabricated,
           'created_at': start * 1000,
         });
-        final stored = (await LocalDb.session(id))!;
+        final stored = (await SessionStore.byId(id))!;
         final db = await LocalDb.instance;
         final app = AppState.forTesting();
         try {
@@ -43,7 +43,7 @@ void main() {
             "BEGIN SELECT RAISE(ABORT,'authored retained-end refusal'); END",
           );
           await app.debugReconcileOrphanedLiveWorkout();
-          expect(await LocalDb.session(id), stored);
+          expect(await SessionStore.byId(id), stored);
           expect(
             app.logLines,
             contains(contains('authored retained-end refusal')),
@@ -54,13 +54,13 @@ void main() {
           await app.debugReconcileOrphanedLiveWorkout();
           expect(app.activeWorkout, isNull);
           expect(WorkoutClock.current, isNull);
-          final saved = (await LocalDb.session(id))!;
+          final saved = (await SessionStore.byId(id))!;
           expect(saved, {...stored, 'status': 'done'});
           expect(saved['end_ts'], end);
           expect(saved['end_ts_fabricated'], fabricated);
           expect(saved['duration_min'], isNull);
           await app.debugReconcileOrphanedLiveWorkout();
-          expect(await LocalDb.session(id), saved);
+          expect(await SessionStore.byId(id), saved);
         } finally {
           await db.execute('DROP TRIGGER IF EXISTS authored_end_refusal');
           app.dispose();

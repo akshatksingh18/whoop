@@ -71,7 +71,7 @@ void main() {
               'resp_rate': 15.0 + variation * .3,
               'tst_min': 270.0 + variation * 10,
             }.entries) {
-              await LocalDb.putMetricSeriesValue(
+              await MetricSeriesStore.putValue(
                 ago(i),
                 metric.key,
                 metric.value,
@@ -80,7 +80,7 @@ void main() {
           }
         }
         if (mode == 'held' || mode == 'previous_day') {
-          await LocalDb.setFrozenHeadline(
+          await FrozenHeadlineStore.put(
             mode == 'held' ? day : ago(1),
             17,
             explanation: {
@@ -107,7 +107,7 @@ void main() {
         final sleep = jsonDecode(row['window_json'] as String) as Map;
         expect(sleep['offset_ms'], greaterThan(sleep['onset_ms'] as num));
         expect(engine.running, false);
-        final pin = await LocalDb.frozenHeadline();
+        final pin = await FrozenHeadlineStore.read();
         if (mode == 'no_baseline') {
           expect(row['readiness'], isNull);
           expect(
@@ -131,7 +131,7 @@ void main() {
           } else if (mode == 'held') {
             expect(pin, (day: day, value: 17));
             expect(
-              (await LocalDb.frozenHeadlineExplanation(
+              (await FrozenHeadlineStore.explanation(
                 day,
                 17,
               ))!['authored_marker'],
@@ -139,21 +139,21 @@ void main() {
             );
           } else {
             expect(pin, (day: day, value: (row['readiness'] as num).round()));
-            final evidence = await LocalDb.frozenHeadlineExplanation(
+            final evidence = await FrozenHeadlineStore.explanation(
               day,
               pin!.value,
             );
             expect(evidence, isNotNull);
             expect(evidence, isNot(contains('authored_marker')));
             expect(bundle['readiness_absent_diag'], isNull);
-            final originalCursor = await LocalDb.getCursor(
-              LocalDb.kFrozenHeadlineCursor,
+            final originalCursor = await CursorStore.read(
+              FrozenHeadlineStore.kCursorKey,
             );
             // A second real pass may refresh details, but never re-pin its first
             // morning score or replace the original explanatory evidence.
             expect(await engine.run(profile, force: true), 1);
             expect(
-              await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor),
+              await CursorStore.read(FrozenHeadlineStore.kCursorKey),
               originalCursor,
             );
           }

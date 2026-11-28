@@ -70,7 +70,7 @@ void main() {
         final text = source(offset: offset);
         final originalText = text;
         final db = await LocalDb.instance;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'authored-unrelated-lift-session',
           'start_ts': 1617714000,
           'status': 'live',
@@ -144,7 +144,7 @@ void main() {
       'corrupt retained split shape $raw reads a fallback without overwriting the recovery anchor',
       () async {
         await CalculationStore.write(LiftLogDb.splitsKey, raw);
-        final baseline = await LocalDb.baseline(
+        final baseline = await MetricSeriesStore.baseline(
           'calculation:${LiftLogDb.splitsKey}',
         );
         final expected = splitContents(LiftSplit.starting);
@@ -155,7 +155,9 @@ void main() {
           expect(splits.every((s) => s.id.isNotEmpty), true);
           expect(await CalculationStore.read(LiftLogDb.splitsKey), raw);
           expect(
-            await LocalDb.baseline('calculation:${LiftLogDb.splitsKey}'),
+            await MetricSeriesStore.baseline(
+              'calculation:${LiftLogDb.splitsKey}',
+            ),
             baseline,
           );
           expect(await (await LocalDb.instance).query('lift_log'), isEmpty);

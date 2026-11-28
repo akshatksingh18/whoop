@@ -155,7 +155,7 @@ void main() {
       await LocalDb.insertRecord(_raw(doomedTs, 5002), _sample(doomedTs, 5002));
 
       // A session in each, likewise.
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'sess-next-day',
         'start_ts': victimTs,
         'end_ts': victimTs + 600,

@@ -265,7 +265,7 @@ class StepGoals {
     final last = DateTime.parse(todayLabel(now));
     while (!d.isAfter(last)) {
       final date = dayLabelOf(d);
-      final resolved = await LocalDb.resolvedStepsForDay(date);
+      final resolved = await StepCoverageStore.resolvedStepsForDay(date);
       final goal = goalOn(h, date);
       if (goal != null && goal > 0 && resolved.total >= goal) {
         out.add(date);
@@ -299,7 +299,7 @@ class StepGoals {
 Future<MoveStreak?> loadMoveStreak({DateTime? at}) async {
   try {
     final now = at ?? DateTime.now();
-    final rows = await LocalDb.sessionsInRange(
+    final rows = await SessionStore.inRange(
       0,
       now.millisecondsSinceEpoch ~/ 1000,
     );

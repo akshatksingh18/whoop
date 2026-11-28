@@ -60,7 +60,7 @@ void main() {
           Prefs.backupLastRunMs: 'authored malformed timestamp',
           Prefs.backupLastError: 'Authored retained status',
         });
-        await LocalDb.setCursor('authored-backup-owner', 'keep');
+        await CursorStore.write('authored-backup-owner', 'keep');
 
         await app.runBackupIfDue();
         expect(
@@ -68,7 +68,7 @@ void main() {
           hasLength(1),
         );
         expect(app.lastBackupError, 'Authored retained status');
-        expect(await LocalDb.getCursor('authored-backup-owner'), 'keep');
+        expect(await CursorStore.read('authored-backup-owner'), 'keep');
 
         // An accepted recent backup timestamp should skip the next run.
         final stamp = DateTime.now().millisecondsSinceEpoch;
@@ -80,7 +80,7 @@ void main() {
           app.logLines.where((line) => line.contains('Backup failed:')),
           hasLength(1),
         );
-        expect(await LocalDb.getCursor('authored-backup-owner'), 'keep');
+        expect(await CursorStore.read('authored-backup-owner'), 'keep');
       },
     );
   }

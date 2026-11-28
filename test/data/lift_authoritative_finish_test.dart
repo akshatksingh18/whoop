@@ -64,7 +64,7 @@ void main() {
           final last = start.add(const Duration(minutes: 30));
           final a = activityByName('Weight training')!;
           await t.runAsync(() async {
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': id,
               'type': a.typeKey,
               'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -160,7 +160,7 @@ void main() {
             find.byType(ActivitySummary),
           );
           final db = (await t.runAsync(() => LocalDb.instance))!;
-          final row = (await t.runAsync(() => LocalDb.session(id)))!;
+          final row = (await t.runAsync(() => SessionStore.byId(id)))!;
           final log = (await t.runAsync(() => LiftLogDb.forSession(id)))!;
           expect(chosenClock.end, last);
           expect(
@@ -208,7 +208,7 @@ void main() {
               );
               await t.pumpAndSettle();
             }
-            final saved = (await t.runAsync(() => LocalDb.session(id)))!;
+            final saved = (await t.runAsync(() => SessionStore.byId(id)))!;
             expect(saved['status'], 'done');
             expect(saved['end_ts'], last.millisecondsSinceEpoch ~/ 1000);
             expect(saved['duration_min'], scenario == 'paused' ? 25 : 30);

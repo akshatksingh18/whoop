@@ -22,7 +22,7 @@ void main() {
       DateTime(d.year, d.month, d.day, 12).millisecondsSinceEpoch ~/ 1000;
   Future<void> seed(DateTime date, {int steps = 1000}) async {
     final start = noon(date), end = noon(date) + 3600;
-    await LocalDb.replacePhoneCoverageForDay(
+    await StepCoverageStore.replacePhoneForDay(
       dayLabelOf(date),
       [(startTs: start, endTs: end, steps: steps)],
       distances: {'$start-$end': steps == 0 ? 0 : steps / 2},
@@ -82,7 +82,7 @@ void main() {
     'COV-62 retained Steps without measured coverage cannot become zero comparison calories',
     () async {
       final reader = repo(complete);
-      await LocalDb.putMetricSeriesValue(dayLabelOf(at), 'steps', 1000);
+      await MetricSeriesStore.putValue(dayLabelOf(at), 'steps', 1000);
       final actualChart = pointsOf(await reader.getChart('steps'));
       expect(actualChart.single.v, 1000);
       final db = await LocalDb.instance;
@@ -171,7 +171,7 @@ void main() {
       expect(result.acsm.single.v, closeTo(.005 * 50 * .1 * 500, 1e-9));
       expect(await CalculationStore.read(ProfileHistory.key), anchors);
       expect(await db.query('body_weight'), measurements);
-      expect(LocalDb.debugBandSteps, false);
+      expect(StepCoverageStore.debugBandSteps, false);
     },
   );
 }

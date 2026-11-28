@@ -50,7 +50,7 @@ void main() {
       '${light ? 'refresh' : 'processing'} real calculation budget expires during pending profile read and preserves queued data',
       (t) async {
         final db = (await t.runAsync(() => LocalDb.instance))!;
-        await t.runAsync(() => LocalDb.setCursor('authored-retained', 'keep'));
+        await t.runAsync(() => CursorStore.write('authored-retained', 'keep'));
         final cursors = await t.runAsync(() => db.query('sync_cursor'));
         final lease = await BandOwnership.acquireForeground();
         addTearDown(() => BandOwnership.release(lease));

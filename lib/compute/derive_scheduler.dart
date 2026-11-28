@@ -105,7 +105,7 @@ class DeriveScheduler {
   Future<void>? _snapshotRead;
 
   Future<void> init() async {
-    await LocalDb.recoverComputeJobs();
+    await ComputeJobStore.recover();
     await _refreshSnapshot();
     _arm();
   }
@@ -212,7 +212,7 @@ class DeriveScheduler {
 
   Future<void> _enqueue({required String type, required String reason}) async {
     if (_suspended) return;
-    await LocalDb.enqueueDeriveJob(type: type, reason: reason);
+    await ComputeJobStore.enqueueDerive(type: type, reason: reason);
     await _refreshSnapshot();
     _arm();
   }
@@ -246,7 +246,7 @@ class DeriveScheduler {
     }
     _timer?.cancel();
     _timer = null;
-    final job = await LocalDb.takeNextComputeJob();
+    final job = await ComputeJobStore.takeNext();
     if (job == null) {
       await _refreshSnapshot();
       return;
@@ -256,10 +256,10 @@ class DeriveScheduler {
     // DB round-trip, and a workout can start (or an offload/background flip can
     // land) inside it — at which point running the pass is exactly what the
     // gate exists to prevent. The job is already marked `running` by
-    // takeNextComputeJob, so hand it back rather than leaving it claimed.
+    // ComputeJobStore.takeNext, so hand it back rather than leaving it claimed.
     if (_suspended || _offloadActive || _background || _workoutHeld) {
       if (id != null && id.isNotEmpty) {
-        await LocalDb.requeueComputeJob(id);
+        await ComputeJobStore.requeue(id);
       }
       await _refreshSnapshot();
       return;
@@ -278,17 +278,17 @@ class DeriveScheduler {
       if (engineBusy()) throw const DeriveCancelled('engine busy');
       await run(kind: kind);
       if (id != null && id.isNotEmpty) {
-        await LocalDb.completeComputeJob(id);
+        await ComputeJobStore.complete(id);
       }
     } on DeriveCancelled catch (e) {
       // A stop is not a failure: hand the job back for the next opportunity.
       log('[derive-scheduler] $e — job requeued');
       if (id != null && id.isNotEmpty) {
-        await LocalDb.requeueComputeJob(id);
+        await ComputeJobStore.requeue(id);
       }
     } catch (e) {
       if (id != null && id.isNotEmpty) {
-        await LocalDb.failComputeJob(id, '$e');
+        await ComputeJobStore.fail(id, '$e');
       }
       rethrow;
     } finally {
@@ -323,7 +323,7 @@ class DeriveScheduler {
   Future<void> _readSnapshotAfter(Future<void>? previous) async {
     await previous;
     try {
-      final jobs = await LocalDb.computeJobs(state: 'queued', limit: 50);
+      final jobs = await ComputeJobStore.jobs(state: 'queued', limit: 50);
       _pendingLight = jobs.any(
         (job) => job['type']?.toString() == 'derive_light',
       );

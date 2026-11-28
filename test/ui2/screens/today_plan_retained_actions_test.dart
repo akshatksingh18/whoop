@@ -59,7 +59,7 @@ void main() {
           true,
         );
         final live = app.activeWorkout!;
-        final before = await t.runAsync(() => LocalDb.session(id));
+        final before = await t.runAsync(() => SessionStore.byId(id));
         expect(before!['status'], 'live');
         expect(before['end_ts'], isNull);
 
@@ -85,7 +85,7 @@ void main() {
         expect(find.byType(LiveShell), findsOneWidget);
         expect(app.activeWorkout, same(live));
         expect(LiveDraft.current!.startedAt, live.startTime);
-        expect(await t.runAsync(() => LocalDb.session(id)), equals(before));
+        expect(await t.runAsync(() => SessionStore.byId(id)), equals(before));
 
         Navigator.of(t.element(find.byType(SessionDestination))).pop();
         await t.pumpAndSettle();
@@ -93,7 +93,7 @@ void main() {
         expect(find.byType(SessionDestination), findsNothing);
         expect(find.text('Resume'), findsOneWidget);
         expect(app.activeWorkout, same(live));
-        expect(await t.runAsync(() => LocalDb.session(id)), equals(before));
+        expect(await t.runAsync(() => SessionStore.byId(id)), equals(before));
         expect(
           await t.runAsync(
             () async => (await LocalDb.instance).query('sessions'),

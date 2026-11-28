@@ -149,12 +149,12 @@ void main() {
           jsonEncode({'kcal_target': 2100}),
         );
         final historical = DateTime(2021, 4, 6, 10);
-        await LocalDb.addLiveCoverage(
+        await StepCoverageStore.add(
           sec(historical),
           sec(historical.add(const Duration(minutes: 10))),
           60,
           '2021-04-06',
-          source: LocalDb.kStepSourcePhone,
+          source: StepCoverageStore.kStepSourcePhone,
         );
         final db = await LocalDb.instance;
         final before = await db.query('live_coverage', orderBy: 'start_ts');
@@ -198,12 +198,17 @@ void main() {
         if (read) {
           expect(current.phoneStepsLastSyncedDays, 2);
           expect(current.phoneStepsLastTotal, expectedTotal);
-          expect(await LocalDb.phoneStepsForDay(todayLabel()), expectedToday);
+          expect(
+            await StepCoverageStore.phoneStepsForDay(todayLabel()),
+            expectedToday,
+          );
           final added = after.where((r) => r['day'] != '2021-04-06').toList();
           expect(added, isNotEmpty);
           expect(added.map((r) => r['day']).toSet(), hasLength(2));
           expect(
-            added.every((r) => r['source'] == LocalDb.kStepSourcePhone),
+            added.every(
+              (r) => r['source'] == StepCoverageStore.kStepSourcePhone,
+            ),
             true,
           );
           expect(

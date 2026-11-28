@@ -48,7 +48,7 @@ void main() {
               'rmssd': earlier == 1 ? 20.0 : 65.0 + earlier % 3,
               'dip_pct': earlier == 1 ? 5.0 : 30.0 + earlier % 3,
             }.entries) {
-              await LocalDb.putMetricSeriesValue(d, entry.key, entry.value);
+              await MetricSeriesStore.putValue(d, entry.key, entry.value);
             }
           }
           await LocalDb.putDayResult(
@@ -57,7 +57,7 @@ void main() {
             payloadJson: jsonEncode({'date': day, 'series': {}}),
             windowJson: '{}',
           );
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-evening-training',
             'type': 'yoga',
             'status': 'done',
@@ -68,7 +68,7 @@ void main() {
           });
           await seedCycleLog(date(19), 'start');
           await seedCycleLog(date(47), 'start');
-          await LocalDb.putBaseline(
+          await MetricSeriesStore.putBaseline(
             'crossday',
             jsonEncode({
               'algo_version': kAlgoVersion,

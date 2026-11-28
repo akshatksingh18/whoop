@@ -98,7 +98,7 @@ void main() {
       final bytes = zip({'readme.txt': 'Authored metadata'});
       final source = await file('empty-export.zip', bytes);
       final engine = CaptureEngine();
-      await LocalDb.setCursor('authored_recovery', 'kept');
+      await CursorStore.write('authored_recovery', 'kept');
       await expectLater(
         NoopImporter.importFile(source.path, profile, engine),
         throwsA(
@@ -110,7 +110,7 @@ void main() {
         ),
       );
       expect(engine.inputs, isEmpty);
-      expect(await LocalDb.getCursor('authored_recovery'), 'kept');
+      expect(await CursorStore.read('authored_recovery'), 'kept');
       expect(await source.readAsBytes(), bytes);
     },
   );

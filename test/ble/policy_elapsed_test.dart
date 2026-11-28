@@ -32,7 +32,7 @@ class _PolicyRig {
   void install() => engine.debugInstallFakeLink(
     band: band,
     onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-        LocalDb.commitSyncBatch(
+        SyncLedgerStore.commitBatch(
           raws,
           samples,
           trimToken: token,
@@ -109,7 +109,7 @@ void main() {
             await (await LocalDb.instance).query('decoded_onehz'),
             isEmpty,
           );
-          expect(await LocalDb.getCursor('strap_trim'), isNull);
+          expect(await CursorStore.read('strap_trim'), isNull);
           if (retire) {
             rig.install();
             rig.now = rig.now.add(const Duration(seconds: 1));
@@ -140,7 +140,7 @@ void main() {
         final db = await LocalDb.instance;
         final rows = await db.query('decoded_onehz');
         expect(rows, hasLength(1));
-        final token = await LocalDb.getCursor('strap_trim');
+        final token = await CursorStore.read('strap_trim');
 
         rig.now = rig.now.add(const Duration(seconds: 599));
         await rig.begin();
@@ -154,7 +154,7 @@ void main() {
         );
         expect(rig.engine.state.strapNeedsReboot, true);
         expect(await db.query('decoded_onehz'), rows);
-        expect(await LocalDb.getCursor('strap_trim'), token);
+        expect(await CursorStore.read('strap_trim'), token);
 
         await rig.begin();
         final newer = record(band);

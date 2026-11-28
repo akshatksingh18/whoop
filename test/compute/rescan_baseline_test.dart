@@ -195,7 +195,7 @@ void main() {
       expect(row['finalized'], 1, reason: 'day remains locked after rescan');
 
       // The metric_series scalar also overwrote (PK date,key → replace).
-      final series = await LocalDb.metricSeries('readiness');
+      final series = await MetricSeriesStore.series('readiness');
       final mine = series.where((r) => r['date'] == day).toList();
       expect(mine.length, 1);
       expect((mine.first['value'] as num).toDouble(), 48);
@@ -204,7 +204,7 @@ void main() {
 }
 
 Future<double?> _medianOf(String key) async {
-  final rows = await LocalDb.metricSeries(key, limit: 28);
+  final rows = await MetricSeriesStore.series(key, limit: 28);
   final vs = <double>[for (final r in rows) (r['value'] as num).toDouble()]
     ..sort();
   if (vs.isEmpty) return null;

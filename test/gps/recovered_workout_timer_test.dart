@@ -21,7 +21,7 @@ void main() {
           1000;
       final start = DateTime.fromMillisecondsSinceEpoch(startSec * 1000);
       final pause = paused ? start.add(const Duration(minutes: 2)) : null;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'type': 'yoga',
         'status': 'live',
@@ -32,7 +32,7 @@ void main() {
       });
       await WorkoutClock(id, start, pausedAt: pause).persist();
       expect(WorkoutClock.current, isNull);
-      final original = await LocalDb.session(id);
+      final original = await SessionStore.byId(id);
       final app = AppState.forTesting();
       try {
         await app.debugReconcileOrphanedLiveWorkout();
@@ -59,10 +59,10 @@ void main() {
           );
         }
         expect(live.currentHr, isNull);
-        expect(await LocalDb.session(id), original);
+        expect(await SessionStore.byId(id), original);
         await app.debugReconcileOrphanedLiveWorkout();
         expect(identical(app.activeWorkout, live), isTrue);
-        expect(await LocalDb.session(id), original);
+        expect(await SessionStore.byId(id), original);
       } finally {
         app.dispose();
         await WorkoutClock.flushWrites();

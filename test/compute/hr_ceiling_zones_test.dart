@@ -320,7 +320,7 @@ void main() {
 
     Future<void> seedRhr(int days) async {
       for (var i = 0; i < days; i++) {
-        await LocalDb.putMetricSeriesValue(
+        await MetricSeriesStore.putValue(
           '2026-05-${(i + 1).toString().padLeft(2, '0')}',
           'rhr',
           50,
@@ -375,9 +375,9 @@ void main() {
     test('the ceiling is the MAX of the series, with the day and session that '
         'set it', () async {
       await seedRhr(28);
-      await LocalDb.putMetricSeriesValue('2026-08-01', 'hr_ceiling_bpm', 171);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
-      await LocalDb.putMetricSeriesValue('2026-08-09', 'hr_ceiling_bpm', 176);
+      await MetricSeriesStore.putValue('2026-08-01', 'hr_ceiling_bpm', 171);
+      await MetricSeriesStore.putValue('2026-08-03', 'hr_ceiling_bpm', 196);
+      await MetricSeriesStore.putValue('2026-08-09', 'hr_ceiling_bpm', 176);
       await seedStampedDay();
       // The day that set it carries the envelope with the session behind it.
       await LocalDb.putDayResult(
@@ -419,12 +419,12 @@ void main() {
       'measured anchors but too few sessions ⇒ still no distribution',
       () async {
         await seedRhr(28);
-        await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
+        await MetricSeriesStore.putValue('2026-08-03', 'hr_ceiling_bpm', 196);
         final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         // Three sessions, each with a frozen per-minute trace. Real anchors, real
         // traces, and it still refuses: three workouts are not a pattern.
         for (var i = 0; i < 3; i++) {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'w-$i',
             'start_ts': now - (i + 1) * 86400,
             'end_ts': now - (i + 1) * 86400 + 1800,
@@ -446,12 +446,12 @@ void main() {
     test('enough sessions with measured anchors ⇒ the distribution, described '
         'and not prescribed', () async {
       await seedRhr(28);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
+      await MetricSeriesStore.putValue('2026-08-03', 'hr_ceiling_bpm', 196);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       // 10 sessions: 40 easy minutes at 128 bpm (Z1 on %HRR off 50/196) and
       // 10 hard minutes at 185 bpm (Z5) each — polarised by construction.
       for (var i = 0; i < 10; i++) {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'w-$i',
           'start_ts': now - (i + 1) * 86400,
           'end_ts': now - (i + 1) * 86400 + 3000,
@@ -478,10 +478,10 @@ void main() {
 
     test('a session outside the 28-day window is not counted', () async {
       await seedRhr(28);
-      await LocalDb.putMetricSeriesValue('2026-08-03', 'hr_ceiling_bpm', 196);
+      await MetricSeriesStore.putValue('2026-08-03', 'hr_ceiling_bpm', 196);
       final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       for (var i = 0; i < 10; i++) {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'old-$i',
           'start_ts': now - (40 + i) * 86400,
           'end_ts': now - (40 + i) * 86400 + 3000,

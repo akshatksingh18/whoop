@@ -121,7 +121,7 @@ Future<bool> _runHeadlessSync({BandLease? lease, required String wake}) async {
     // ~10 s budget, and drove iOS CPU-limit kills (build 86). The durable job
     // drains in the foreground or in an OS-granted background task.
     try {
-      await LocalDb.enqueueDeriveJob(
+      await ComputeJobStore.enqueueDerive(
         type: 'derive_light',
         reason: 'headless_sync',
       );
@@ -159,7 +159,7 @@ const String _kLastStalenessNotifiedMs = 'last_staleness_notified_ms';
 /// passes `true` explicitly.
 Future<void> checkSyncStaleness({bool allowPermissionPrompt = false}) async {
   try {
-    final recTsHw = await LocalDb.getCursorInt('rec_ts_hw');
+    final recTsHw = await CursorStore.readInt('rec_ts_hw');
     // Never synced at all (e.g. freshly paired, first drain still pending) —
     // nothing to escalate; that's a distinct, already-visible onboarding
     // state, not silent staleness.
@@ -229,7 +229,7 @@ BleEngine headlessEngine() => BleEngine(
       }),
   log: (l) => _bgLog('[bgsync] $l'),
   onCommitBatch: (raws, samples, trimTokenHex, {archives, deviceFamily}) =>
-      LocalDb.commitSyncBatch(
+      SyncLedgerStore.commitBatch(
         raws,
         samples,
         trimToken: trimTokenHex,
@@ -238,7 +238,7 @@ BleEngine headlessEngine() => BleEngine(
         onCheckpoint: (msg) => _bgLog('[bgsync][COMMIT] $msg'),
       ),
   onArchiveRecord: LocalDb.archiveRawRecord,
-  cursorReader: LocalDb.getCursorInt,
+  cursorReader: CursorStore.readInt,
   // Mark this as the background drainer: if the foreground app engine already
   // owns the band (same process, an iOS restore wake), this engine YIELDS
   // instead of opening a second drain that would double-ACK the same offload

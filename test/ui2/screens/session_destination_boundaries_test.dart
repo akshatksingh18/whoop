@@ -58,7 +58,7 @@ void main() {
   }
 
   Future<void> saved({String type = 'running', bool unknownEnd = false}) =>
-      LocalDb.putSession({
+      SessionStore.put({
         'id': 'synthetic-session',
         'type': type,
         'start_ts': DateTime(2021, 4, 6, 8).millisecondsSinceEpoch ~/ 1000,
@@ -91,7 +91,7 @@ void main() {
           type: 'general_workout',
           profile: profile,
         );
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'synthetic-live',
           'type': 'general_workout',
           'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -118,7 +118,7 @@ void main() {
         if (retained) expect(draft.data['synthetic-note'], 'kept');
         expect(
           (await t.runAsync(
-            () => LocalDb.session('synthetic-live'),
+            () => SessionStore.byId('synthetic-live'),
           ))!['status'],
           'live',
         );
@@ -177,7 +177,7 @@ void main() {
       );
       expect(
         (await t.runAsync(
-          () => LocalDb.session('synthetic-session'),
+          () => SessionStore.byId('synthetic-session'),
         ))!['calories'],
         isNull,
       );
@@ -203,7 +203,7 @@ void main() {
       expect(card, findsOneWidget);
       expect(
         (await t.runAsync(
-          () => LocalDb.session('synthetic-session'),
+          () => SessionStore.byId('synthetic-session'),
         ))!['end_ts_fabricated'],
         1,
       );

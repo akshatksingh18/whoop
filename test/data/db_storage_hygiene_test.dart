@@ -91,7 +91,8 @@ void main() {
         }
       }
 
-      final deleted = await LocalDb.pruneSupersededIntermediates();
+      final deleted =
+          await StorageRetentionStore.pruneSupersededIntermediates();
       expect(deleted, 4, reason: 'two days x v48, in both tables');
 
       for (final table in const [
@@ -107,7 +108,7 @@ void main() {
   );
 
   test('pruning is a no-op when there is nothing superseded', () async {
-    expect(await LocalDb.pruneSupersededIntermediates(), 0);
+    expect(await StorageRetentionStore.pruneSupersededIntermediates(), 0);
   });
 
   test('a day stuck on an old version (raw aged out, never re-derived) is not '
@@ -133,9 +134,9 @@ void main() {
       }
     }
 
-    await LocalDb.pruneSupersededIntermediates();
+    await StorageRetentionStore.pruneSupersededIntermediates();
 
-    final stale = await LocalDb.sleepSessionCandidate('2026-06-01', 48);
+    final stale = await SleepIntermediateStore.candidate('2026-06-01', 48);
     expect(
       stale,
       isNotNull,

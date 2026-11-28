@@ -485,7 +485,7 @@ void main() {
         final beforeRevision = app.insightsRevision.value;
         final start = DateTime(2026, 1, 2, 10).millisecondsSinceEpoch ~/ 1000;
         await t.runAsync(
-          () => LocalDb.putSession({
+          () => SessionStore.put({
             'id': 'authored-overlapping-lift',
             'type': 'weight_training',
             'start_ts': start,
@@ -499,7 +499,7 @@ void main() {
           }),
         );
         final session = await t.runAsync(
-          () => LocalDb.session('authored-overlapping-lift'),
+          () => SessionStore.byId('authored-overlapping-lift'),
         );
         picker.file = await t.runAsync(() async {
           final payload =
@@ -531,7 +531,9 @@ void main() {
         expect(imported.exercises.single.sets, hasLength(1));
         expect(imported.exercises.single.sets.single.reps, 8);
         expect(
-          await t.runAsync(() => LocalDb.session('authored-overlapping-lift')),
+          await t.runAsync(
+            () => SessionStore.byId('authored-overlapping-lift'),
+          ),
           session,
           reason: 'Attaching imported sets never reprices the measured session',
         );

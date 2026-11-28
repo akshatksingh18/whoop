@@ -366,7 +366,7 @@ void main() {
     );
     final json = enteredDetailJson(typed);
     expect(enteredDetailJson(base), isNull);
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'f01',
       'start_ts': 1790000000,
       'end_ts': 1790001800,
@@ -374,8 +374,8 @@ void main() {
       'status': 'done',
       'created_at': 1790000000,
     });
-    await LocalDb.putSessionDetail('f01', json!);
-    final back = withEnteredDetail(base, await LocalDb.sessionDetail('f01'));
+    await SessionStore.putDetail('f01', json!);
+    final back = withEnteredDetail(base, await SessionStore.detail('f01'));
     expect(back.lapSecs, [61, 63]);
     expect(back.poolLengthM, 25);
     expect(back.stroke, 'free');
@@ -386,13 +386,13 @@ void main() {
     // A garbled row reopens the workout without its detail, never throws.
     expect(withEnteredDetail(base, '{"pool": "x"}').poolLengthM, isNull);
     // Deleting the workout deletes what was typed with it.
-    await LocalDb.deleteSession('f01');
-    expect(await LocalDb.sessionDetail('f01'), isNull);
+    await SessionStore.delete('f01');
+    expect(await SessionStore.detail('f01'), isNull);
   });
 
   test('F03: a private workout and its sets stay out of the CSV', () async {
     for (final (id, private) in [('open', 0), ('hidden', 1)]) {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': 1790000000 + private * 7200,
         'end_ts': 1790001800 + private * 7200,
@@ -400,7 +400,7 @@ void main() {
         'status': 'done',
         'created_at': 1790000000,
       });
-      await LocalDb.setSessionPrivate(id, private == 1);
+      await SessionStore.setPrivate(id, private == 1);
       await db.insert('strength_set', {
         'session_id': id,
         'seq': 0,

@@ -193,7 +193,7 @@ void main() {
   test('deleteDays cascades workout_route with its session', () async {
     const dayId = '2026-04-10';
     final startSec = DateTime(2026, 4, 10, 9).millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'run-with-route',
       'start_ts': startSec,
       'end_ts': startSec + 1800,
@@ -202,7 +202,7 @@ void main() {
       'source': 'manual',
       'created_at': startSec * 1000,
     });
-    await LocalDb.appendRoutePoints('run-with-route', [
+    await WorkoutRouteStore.appendPoints('run-with-route', [
       for (var i = 0; i < 5; i++)
         {
           'session_id': 'run-with-route',
@@ -212,7 +212,7 @@ void main() {
           'lng': 77.59 + i * 0.001,
         },
     ]);
-    expect(await LocalDb.sessionHasRoute('run-with-route'), isTrue);
+    expect(await WorkoutRouteStore.hasRoute('run-with-route'), isTrue);
 
     await LocalDb.deleteDays({dayId});
 
@@ -446,7 +446,7 @@ void main() {
     const dayId = '2026-03-20';
     final dayStart = DateTime(2026, 3, 20).millisecondsSinceEpoch ~/ 1000;
     const n = 1200; // > SQLITE_MAX_VARIABLE_NUMBER's 999 floor
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [for (var i = 0; i < n; i++) _raw(dayStart + i, 90000 + i)],
       [
         for (var i = 0; i < n; i++) _sample(dayStart + i, 90000 + i, [800]),

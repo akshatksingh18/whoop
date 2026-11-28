@@ -54,7 +54,7 @@ void main() {
     test(
       'saved phone-only walk $shape retains its measured active time and distance',
       () async {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': 'walking',
           'status': 'done',
@@ -75,11 +75,11 @@ void main() {
         final key = 'motion.$id.${sec(start)}-${sec(end)}';
         await CalculationStore.write(key, payload);
         if (shape == 'zero') {
-          await LocalDb.replacePhoneCoverageForDay(dayLabelOf(start), [
+          await StepCoverageStore.replacePhoneForDay(dayLabelOf(start), [
             (startTs: sec(start), endTs: sec(end), steps: 0),
           ]);
         }
-        final before = (await LocalDb.session(id))!;
+        final before = (await SessionStore.byId(id))!;
         final result = await WorkoutMeasurements.read(
           LocalRepositoryImpl(getProfileMap: () => current.toMap()),
           id,
@@ -108,8 +108,8 @@ void main() {
         expect(result.profile.weightKg, 70);
         expect(calls, isEmpty);
         expect(await CalculationStore.read(key), payload);
-        expect(await LocalDb.session(id), before);
-        expect(await LocalDb.routePoints(id), isEmpty);
+        expect(await SessionStore.byId(id), before);
+        expect(await WorkoutRouteStore.points(id), isEmpty);
         expect(await (await LocalDb.instance).query('day_result'), isEmpty);
       },
     );
@@ -121,7 +121,7 @@ void main() {
         'saved walk $shape with $evidence steps keeps independent evidence',
         () async {
           final paused = shape == 'paused';
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'type': 'walking',
             'status': 'done',
@@ -145,7 +145,7 @@ void main() {
                 ),
             ],
           ).persist();
-          await LocalDb.appendRoutePoints(id, [
+          await WorkoutRouteStore.appendPoints(id, [
             for (var i = 0; i <= 60; i++)
               if (shape != 'signal-gap' || i <= 20 || i >= 30)
                 RoutePoint(
@@ -159,7 +159,7 @@ void main() {
                 ).toRow(id),
           ]);
           if (evidence != 'absent') {
-            await LocalDb.replacePhoneCoverageForDay(dayLabelOf(start), [
+            await StepCoverageStore.replacePhoneForDay(dayLabelOf(start), [
               (
                 startTs: sec(start),
                 endTs: sec(end),
@@ -167,8 +167,8 @@ void main() {
               ),
             ]);
           }
-          final before = (await LocalDb.session(id))!;
-          final route = await LocalDb.routePoints(id);
+          final before = (await SessionStore.byId(id))!;
+          final route = await WorkoutRouteStore.points(id);
           final coverage = await (await LocalDb.instance).query(
             'live_coverage',
           );
@@ -226,8 +226,8 @@ void main() {
             isEmpty,
             reason: 'Reading saved GPS must not request phone permission',
           );
-          expect(await LocalDb.session(id), before);
-          expect(await LocalDb.routePoints(id), route);
+          expect(await SessionStore.byId(id), before);
+          expect(await WorkoutRouteStore.points(id), route);
           expect(
             await (await LocalDb.instance).query('live_coverage'),
             coverage,

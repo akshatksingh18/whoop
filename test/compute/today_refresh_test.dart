@@ -45,7 +45,7 @@ class _RefreshApp extends AppState {
 }
 
 Future<void> _phone(int steps) =>
-    LocalDb.replacePhoneCoverageForDay(todayLabel(), [
+    StepCoverageStore.replacePhoneForDay(todayLabel(), [
       (
         startTs: localDayStartSec(todayLabel())!,
         endTs: localDayStartSec(todayLabel())! + 3600,
@@ -55,8 +55,8 @@ Future<void> _phone(int steps) =>
 
 void main() {
   // These cover the band ladder, which the app keeps off (phone-only steps).
-  setUpAll(() => LocalDb.debugBandSteps = true);
-  tearDownAll(() => LocalDb.debugBandSteps = false);
+  setUpAll(() => StepCoverageStore.debugBandSteps = true);
+  tearDownAll(() => StepCoverageStore.debugBandSteps = false);
 
   TestWidgetsFlutterBinding.ensureInitialized();
   final repo = LocalRepositoryImpl(getProfileMap: () => {});
@@ -172,7 +172,7 @@ void main() {
     () async {
       await _phone(0);
       final start = localDayStartSec(todayLabel())!;
-      await LocalDb.addLiveCoverage(start, start + 100, 100, todayLabel());
+      await StepCoverageStore.add(start, start + 100, 100, todayLabel());
       final steps = await todaySteps();
       expect(steps['value'], 100);
       expect(steps['source'], 'strap');
@@ -248,7 +248,7 @@ void main() {
       await scheduler.markStoredData();
       expect(scheduler.pendingLight, isTrue);
       expect(
-        (await LocalDb.computeJobs(state: 'queued', limit: 50)),
+        (await ComputeJobStore.jobs(state: 'queued', limit: 50)),
         isNotEmpty,
       );
       await Future<void>.delayed(const Duration(milliseconds: 30));

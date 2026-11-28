@@ -235,7 +235,7 @@ void main() {
       app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
       final start = DateTime.now().subtract(const Duration(minutes: 3));
       const id = 'late-final-save-synthetic';
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'type': 'swimming',
@@ -261,14 +261,14 @@ void main() {
         );
         expect(app.activeWorkout, isNotNull);
         expect(LiveDraft.current, isNotNull);
-        expect((await LocalDb.session(id))!['status'], 'live');
+        expect((await SessionStore.byId(id))!['status'], 'live');
         expect(clock.end, isNotNull);
         expect(app.workoutAwaitingSave, true);
         expect(LiveDraft.current!.elapsedSec, clock.activeSeconds(clock.end!));
         await db.execute('DROP TRIGGER audit_final_save_fail');
         await app.stopWorkout();
         expect(app.activeWorkout, isNull);
-        expect((await LocalDb.session(id))!['status'], 'done');
+        expect((await SessionStore.byId(id))!['status'], 'done');
         expect(
           clock.activeSeconds(clock.end!.add(const Duration(minutes: 5))),
           clock.activeSeconds(clock.end!),
@@ -320,7 +320,7 @@ void main() {
               .subtract(const Duration(hours: 1))
               .millisecondsSinceEpoch ~/
           1000;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'private-summary-synthetic',
         'start_ts': start,
         'end_ts': start + 600,
@@ -344,7 +344,7 @@ void main() {
     () async {
       final start = DateTime(2026, 9, 10, 8);
       const id = 'synthetic-legacy-cut';
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'end_ts':
@@ -375,7 +375,7 @@ void main() {
       expect(result['zone_min'], isEmpty);
       final hr = result['hr'] as List;
       expect(hr.single['v'], 80);
-      expect((await LocalDb.session(id))!['calories'], isNull);
+      expect((await SessionStore.byId(id))!['calories'], isNull);
       expect(
         WorkoutClock.read(
           id,
@@ -394,7 +394,7 @@ void main() {
       app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
       final start = DateTime.now().subtract(const Duration(minutes: 20));
       const id = 'last-set-shortened-synthetic';
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'type': 'weight_training',
@@ -420,7 +420,7 @@ void main() {
       w.elapsed = const Duration(minutes: 10);
       try {
         await app.stopWorkout();
-        final row = (await LocalDb.session(id))!;
+        final row = (await SessionStore.byId(id))!;
         expect(row['duration_min'], 10);
         final hr = clock.results['hr'] as List;
         expect(hr.length, lessThanOrEqualTo(10));

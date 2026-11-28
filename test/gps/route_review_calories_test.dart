@@ -91,7 +91,7 @@ void main() {
       final start = now.subtract(const Duration(minutes: 10));
       final ts = start.millisecondsSinceEpoch ~/ 1000;
       const id = 'refresh-live-walk';
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': ts,
         'status': 'live',
@@ -99,7 +99,7 @@ void main() {
         'created_at': start.millisecondsSinceEpoch,
       });
       WorkoutClock.begin(id, start, profile);
-      await LocalDb.appendRoutePoints(id, [
+      await WorkoutRouteStore.appendPoints(id, [
         for (var i = 0; i <= 600; i++)
           RoutePoint(
             seq: i,
@@ -121,7 +121,7 @@ void main() {
         state.dispose();
         WorkoutClock.current = null;
       });
-      await LocalDb.replacePhoneCoverageForDay(dayLabelOf(start), [
+      await StepCoverageStore.replacePhoneForDay(dayLabelOf(start), [
         (startTs: ts, endTs: ts + 600, steps: 500),
       ]);
       await state.refreshForeground();
@@ -131,7 +131,7 @@ void main() {
         stepCalories(500, profile.weightKg)!.round(),
       );
       expect(state.workoutAcsmKcal, closeTo(22, 1));
-      await LocalDb.replacePhoneCoverageForDay(dayLabelOf(start), [
+      await StepCoverageStore.replacePhoneForDay(dayLabelOf(start), [
         (startTs: ts, endTs: ts + 600, steps: 1000),
       ]);
       await state.refreshForeground();
@@ -196,7 +196,7 @@ void main() {
       final day = DateTime(2026, 10, 3),
           label = dayLabelOf(day),
           start = day.millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.replacePhoneCoverageForDay(
+      await StepCoverageStore.replacePhoneForDay(
         label,
         [(startTs: start, endTs: start + 3600, steps: 1000)],
         distances: {'$start-${start + 3600}': 600},
@@ -253,12 +253,12 @@ void main() {
     () async {
       final start = DateTime(2026, 10, 3, 8);
       final ts = start.millisecondsSinceEpoch ~/ 1000, day = dayLabelOf(start);
-      await LocalDb.replacePhoneCoverageForDay(
+      await StepCoverageStore.replacePhoneForDay(
         day,
         [(startTs: ts, endTs: ts + 1200, steps: 1000)],
         distances: {'$ts-${ts + 1200}': 600},
       );
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'walk-route',
         'start_ts': ts,
         'end_ts': ts + 600,
@@ -273,7 +273,7 @@ void main() {
         end: start.add(const Duration(minutes: 10)),
         profile: profile,
       ).persist();
-      await LocalDb.appendRoutePoints('walk-route', [
+      await WorkoutRouteStore.appendPoints('walk-route', [
         for (var i = 0; i <= 600; i++)
           RoutePoint(
             seq: i,

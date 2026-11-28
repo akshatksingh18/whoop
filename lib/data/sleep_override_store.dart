@@ -83,7 +83,7 @@ abstract final class SleepOverrideStore {
       ((await correction(day))?['generation'] as num?)?.toInt();
 
   static Future<int> correctionRevision() async =>
-      await LocalDb.getCursorInt('sleep_correction_revision') ?? 0;
+      await CursorStore.readInt('sleep_correction_revision') ?? 0;
 
   /// Accept intent and preserve every prior generation in one SQLite transaction.
   /// The projected row is deliberately partial/unfinalized: unknown is not a
@@ -111,7 +111,7 @@ abstract final class SleepOverrideStore {
       final pins = await txn.query(
         'sync_cursor',
         where: 'name = ?',
-        whereArgs: [LocalDb.kFrozenHeadlineCursor],
+        whereArgs: [FrozenHeadlineStore.kCursorKey],
       );
       final snapshot = <String, dynamic>{
         'generation': prior?['generation'],
@@ -218,7 +218,7 @@ abstract final class SleepOverrideStore {
           await txn.delete(
             'sync_cursor',
             where: 'name = ?',
-            whereArgs: [LocalDb.kFrozenHeadlineCursor],
+            whereArgs: [FrozenHeadlineStore.kCursorKey],
           );
         }
       }
@@ -229,8 +229,8 @@ abstract final class SleepOverrideStore {
         whereArgs: _correctionArtifacts,
       );
       final revision =
-          await LocalDb._cursorIntVia(txn, 'sleep_correction_revision') ?? 0;
-      await LocalDb.setCursor(
+          await CursorStore._readIntVia(txn, 'sleep_correction_revision') ?? 0;
+      await CursorStore.write(
         'sleep_correction_revision',
         '${revision + 1}',
         txn: txn,

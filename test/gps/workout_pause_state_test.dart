@@ -56,7 +56,7 @@ void main() {
   test(
     'the real pause callback retains the session and can resume before a durable finish',
     () async {
-      await LocalDb.putMetricSeriesValue(todayLabel(), 'rhr', 55);
+      await MetricSeriesStore.putValue(todayLabel(), 'rhr', 55);
       expect(
         await app.startWorkout(
           workoutId: 'synthetic-pause',
@@ -75,14 +75,14 @@ void main() {
       app.debugTickWorkout();
       expect(WorkoutClock.read(clock.id, clock.start).pausedAt, isNotNull);
       expect(app.activeWorkout!.workoutId, clock.id);
-      expect((await LocalDb.session(clock.id))!['status'], 'live');
+      expect((await SessionStore.byId(clock.id))!['status'], 'live');
       clock.setPaused(false);
       await settle();
       expect(clock.pausedAt, isNull);
       expect(clock.pauses, hasLength(1));
       await app.stopWorkout();
       expect(app.activeWorkout, isNull);
-      expect((await LocalDb.session(clock.id))!['status'], 'done');
+      expect((await SessionStore.byId(clock.id))!['status'], 'done');
     },
   );
   test(
@@ -98,7 +98,7 @@ void main() {
       await app.rebuildInsights();
       expect(app.insightsRebuilding, false);
       expect(app.insightsRebuildMessage, startsWith('Finish the workout'));
-      expect(await LocalDb.baseline('crossday'), isNull);
+      expect(await MetricSeriesStore.baseline('crossday'), isNull);
       await app.stopWorkout();
     },
   );

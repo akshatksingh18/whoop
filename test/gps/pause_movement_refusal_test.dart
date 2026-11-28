@@ -37,7 +37,7 @@ void main() {
       final active = app.activeWorkout!;
       final clock = WorkoutClock.current!;
       final db = await LocalDb.instance;
-      final saved = await LocalDb.session(id);
+      final saved = await SessionStore.byId(id);
       final route = await db.query('workout_route');
 
       await db.execute(
@@ -54,12 +54,14 @@ void main() {
           ),
         );
         await WorkoutClock.flushWrites();
-        final timing = await LocalDb.baseline('calculation:workout.clock.$id');
+        final timing = await MetricSeriesStore.baseline(
+          'calculation:workout.clock.$id',
+        );
         final persisted = jsonDecode(timing!['payload_json'] as String) as Map;
         expect(persisted['paused'], pausedAt!.millisecondsSinceEpoch);
         expect(persisted['end'], isNull);
         expect(app.activeWorkout, same(active));
-        expect(await LocalDb.session(id), saved);
+        expect(await SessionStore.byId(id), saved);
         expect(await db.query('authored_retained_route'), route);
       } finally {
         await db.execute(
@@ -74,11 +76,11 @@ void main() {
       expect(clock.pauses.single.start, pausedAt);
       expect(clock.pausedAt, isNull);
       expect(app.activeWorkout, same(active));
-      expect(await LocalDb.session(id), saved);
+      expect(await SessionStore.byId(id), saved);
 
       await app.stopWorkout();
       expect(app.activeWorkout, isNull);
-      final done = (await LocalDb.session(id))!;
+      final done = (await SessionStore.byId(id))!;
       expect(done['status'], 'done');
       expect(done['start_ts'], saved!['start_ts']);
       expect(done['steps'], isNull);

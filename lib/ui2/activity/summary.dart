@@ -873,7 +873,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     final id = result.sessionId;
     if (id == null) return;
     try {
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final te = (row?['end_ts'] as num?)?.toInt();
       if (row?['status'] == 'live' ||
           te == null ||
@@ -1044,7 +1044,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
     if (id == null) return;
     final app = appOf(context);
     try {
-      await LocalDb.setSessionRpe(id, v.toDouble());
+      await SessionStore.setRpe(id, v.toDouble());
       app?.publishSessionChange();
     } catch (_) {
       return; // the row is unchanged, so the card stays and says nothing false
@@ -1145,7 +1145,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
   }
 
   /// Correct a session's activity type — the band's own guess, or a hand-typed
-  /// one that was wrong. `LocalDb.setSessionType` is the narrow UPDATE this
+  /// one that was wrong. `SessionStore.setType` is the narrow UPDATE this
   /// reuses; it used to have no caller at all (lost in the ui2 rewrite along
   /// with the screen that called it).
   ///
@@ -1169,7 +1169,7 @@ class _ActivitySummaryState extends State<ActivitySummary> {
             // resolve through `activityByName`'s normalized lookup, but it would
             // store a different string than every other producer of this column.
             try {
-              await LocalDb.setSessionType(id, newActivity.typeKey);
+              await SessionStore.setType(id, newActivity.typeKey);
               app?.publishSessionChange();
             } catch (_) {
               // Same rule as `_saveRpe`: the row is unchanged, so leave the

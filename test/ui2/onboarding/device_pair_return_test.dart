@@ -42,7 +42,7 @@ void main() {
   testWidgets(
     'pairing Skip returns to the same Devices page and keeps saved measurements',
     (t) async {
-      await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+      await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
       final db = await LocalDb.instance;
       final before = await db.query('metric_series');
       await open(t);

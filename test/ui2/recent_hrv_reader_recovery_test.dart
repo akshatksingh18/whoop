@@ -26,11 +26,7 @@ void main() {
   tearDownAll(LocalDb.close);
   Future<void> nights() async {
     for (var i = 0; i < 20; i++) {
-      await LocalDb.putMetricSeriesValue(
-        day(i),
-        'ln_rmssd_v2',
-        math.log(50 + i),
-      );
+      await MetricSeriesStore.putValue(day(i), 'ln_rmssd_v2', math.log(50 + i));
     }
   }
 
@@ -46,7 +42,7 @@ void main() {
     'the latest imported outlier cannot replace the newest measured night',
     () async {
       await nights();
-      await LocalDb.putMetricSeriesValue(day(20), 'ln_rmssd_v2', math.log(200));
+      await MetricSeriesStore.putValue(day(20), 'ln_rmssd_v2', math.log(200));
       await LocalDb.putDayResult(
         dayId: day(20),
         algoVersion: kAlgoVersion,
@@ -59,7 +55,7 @@ void main() {
       expect(view.nights, hasLength(14));
       expect(view.last, closeTo(69, .000001));
       expect(view.nights.any((n) => n.date == day(20)), false);
-      expect(await LocalDb.metricSeries('ln_rmssd_v2'), hasLength(21));
+      expect(await MetricSeriesStore.series('ln_rmssd_v2'), hasLength(21));
     },
   );
   test(
@@ -126,7 +122,7 @@ void main() {
       expect(view().day, day(9));
       expect(view().last, closeTo(59, .000001));
       expect(
-        await t.runAsync(() => LocalDb.metricSeries('ln_rmssd_v2')),
+        await t.runAsync(() => MetricSeriesStore.series('ln_rmssd_v2')),
         hasLength(20),
       );
     },

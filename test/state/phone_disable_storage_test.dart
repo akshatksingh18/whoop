@@ -18,7 +18,7 @@ void main() {
         () async {
           const date = '2021-04-06';
           final start = DateTime(2021, 4, 6, 12).millisecondsSinceEpoch ~/ 1000;
-          await LocalDb.replacePhoneCoverageForDay(date, [
+          await StepCoverageStore.replacePhoneForDay(date, [
             (startTs: start, endTs: start + 3600, steps: 100),
           ]);
           final db = await LocalDb.instance;
@@ -31,7 +31,7 @@ void main() {
               'source': 'band',
             });
           }
-          await LocalDb.putMetricSeriesValue(date, 'steps', 100);
+          await MetricSeriesStore.putValue(date, 'steps', 100);
           final before = await db.query('live_coverage', orderBy: 'id');
           final band = before.where((r) => r['source'] == 'band').toList();
           final totals = await db.query('metric_series');

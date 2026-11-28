@@ -32,12 +32,12 @@ void main() {
     'nine measured mornings plus an imported one cannot reach the ten-morning floor',
     () async {
       for (var i = 1; i <= 10; i++) {
-        await LocalDb.putMetricSeriesValue(ago(i), 'rhr', 50 + i.toDouble());
+        await MetricSeriesStore.putValue(ago(i), 'rhr', 50 + i.toDouble());
       }
       await imported(ago(10));
-      expect(await LocalDb.metricSeries('rhr'), hasLength(10));
+      expect(await MetricSeriesStore.series('rhr'), hasLength(10));
       expect(
-        await LocalDb.metricSeries('rhr', measuredOnly: true),
+        await MetricSeriesStore.series('rhr', measuredOnly: true),
         hasLength(9),
       );
       expect(await loadRecoveryMovers('rhr'), isEmpty);
@@ -49,19 +49,19 @@ void main() {
       for (var i = 0; i < 11; i++) {
         final morning = ago(2 * i + 1), prior = ago(2 * i + 2);
         final high = i < 6;
-        await LocalDb.putMetricSeriesValue(morning, 'rhr', high ? 60 : 50);
-        await LocalDb.putMetricSeriesValue(prior, 'steps', high ? 12000 : 6000);
-        await LocalDb.putMetricSeriesValue(prior, 'strain', high ? 15 : 7);
-        await LocalDb.putMetricSeriesValue(prior, 'worn_min', 960);
+        await MetricSeriesStore.putValue(morning, 'rhr', high ? 60 : 50);
+        await MetricSeriesStore.putValue(prior, 'steps', high ? 12000 : 6000);
+        await MetricSeriesStore.putValue(prior, 'strain', high ? 15 : 7);
+        await MetricSeriesStore.putValue(prior, 'worn_min', 960);
       }
       // The first morning has an imported previous day's exposure: unknown,
       // neither "with" nor "without". Its measured RHR remains in the store.
       await imported(ago(2));
-      await LocalDb.putMetricSeriesValue(ago(25), 'rhr', 100);
-      await LocalDb.putMetricSeriesValue(ago(26), 'steps', 12000);
+      await MetricSeriesStore.putValue(ago(25), 'rhr', 100);
+      await MetricSeriesStore.putValue(ago(26), 'steps', 12000);
       await imported(ago(25));
-      await LocalDb.putMetricSeriesValue(ago(150), 'rhr', 100);
-      await LocalDb.putMetricSeriesValue(ago(151), 'steps', 12000);
+      await MetricSeriesStore.putValue(ago(150), 'rhr', 100);
+      await MetricSeriesStore.putValue(ago(151), 'steps', 12000);
       final rows = await loadRecoveryMovers('rhr');
       for (final tag in ['10,000+ steps', 'Strain 14 or more']) {
         final row = rows.singleWhere((r) => r['tag'] == tag);
@@ -72,7 +72,7 @@ void main() {
         expect(row['helped'], false);
       }
       expect(
-        (await LocalDb.metricSeries('rhr')).length,
+        (await MetricSeriesStore.series('rhr')).length,
         13,
         reason: 'Filtering a comparison must not delete historical evidence',
       );
@@ -85,7 +85,7 @@ void main() {
       for (var i = 0; i < 10; i++) {
         final morning = ago(2 * i + 1), prior = ago(2 * i + 2);
         final high = i < 5;
-        await LocalDb.putMetricSeriesValue(morning, 'rhr', high ? 60 : 50);
+        await MetricSeriesStore.putValue(morning, 'rhr', high ? 60 : 50);
         await NutritionDb.put(
           db,
           FoodEntry(

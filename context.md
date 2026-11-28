@@ -60,7 +60,7 @@ processing task (`lib/compute/derive_scheduler.dart`).
 | `packages/analytics/` | Metrics: HRV, sleep staging, readiness, strain, energy. Pure Dart. |
 | `lib/ble/` | Link state machine and drain (`ble_engine.dart`); pure policies in `ble_state.dart`. |
 | `lib/sync/` | Sync policies (`sync_policy.dart`), headless/BG entries, paired device, file log. |
-| `lib/data/` | `db.dart` (schema ladder, SQL) and its per-concern stores (`notif_fired_store.dart`, `sleep_nap_store.dart`, `journal_store.dart`, `sleep_override_store.dart`), read seam, backups, food/body/lift stores, `day_label.dart`. |
+| `lib/data/` | `db.dart` (schema ladder, SQL) and its per-concern stores (`notif_fired_store.dart`, `sleep_nap_store.dart`, `journal_store.dart`, `sleep_override_store.dart`, `workout_route_store.dart`, `session_store.dart`, `workout_suggestion_store.dart`, `step_coverage_store.dart`, `sync_ledger_store.dart`, `diagnostics_store.dart`, `compute_job_store.dart`, `metric_series_store.dart`, `compute_freshness_store.dart`, `series_reencode_store.dart`, `sleep_intermediate_store.dart`, `storage_retention_store.dart`, `frozen_headline_store.dart`, `cursor_store.dart`), read seam, backups, food/body/lift stores, `day_label.dart`. |
 | `lib/compute/` | Substrate, pipelines, derivation engine and scheduler, sessions, streaks, upkeep. |
 | `lib/state/` | `AppState` and its small helpers; the one source of truth for the UI. |
 | `lib/notify/` | `NotificationCenter.emit` (the single emitter), fire-once keys, alert policies. |

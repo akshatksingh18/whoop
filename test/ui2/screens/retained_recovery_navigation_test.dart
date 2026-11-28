@@ -58,7 +58,7 @@ void main() {
             series: {'readiness': score.toDouble()},
           );
           if (mode == 'pin-without-evidence') {
-            await LocalDb.setFrozenHeadline(day, score);
+            await FrozenHeadlineStore.put(day, score);
           }
           final repo = LocalRepositoryImpl(getProfileMap: () => {});
           final app = AppState.forTesting()
@@ -102,7 +102,7 @@ void main() {
           final db = await LocalDb.instance;
           final stored = await db.query('day_result', orderBy: 'day_id');
           final series = await db.query('metric_series', orderBy: 'date,key');
-          final pin = await LocalDb.frozenHeadline();
+          final pin = await FrozenHeadlineStore.read();
           await localizedPage(
             t,
             ReadinessDetail(day: day),
@@ -155,7 +155,7 @@ void main() {
           }
           expect(await db.query('day_result', orderBy: 'day_id'), stored);
           expect(await db.query('metric_series', orderBy: 'date,key'), series);
-          final afterPin = await LocalDb.frozenHeadline();
+          final afterPin = await FrozenHeadlineStore.read();
           expect(afterPin?.day, pin?.day);
           expect(afterPin?.value, pin?.value);
           expect(t.takeException(), isNull);

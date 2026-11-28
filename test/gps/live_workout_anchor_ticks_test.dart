@@ -48,7 +48,7 @@ void main() {
             final workout = app.activeWorkout!;
             expect(workout.restingHr, 55);
             expect(workout.hrMax, isNotNull);
-            final before = (await LocalDb.session(id))!;
+            final before = (await SessionStore.byId(id))!;
             final maxHr = workout.hrMax;
             app.user = {...app.user!, 'age': 65, 'weight_kg': 110.0};
             band.state
@@ -82,15 +82,15 @@ void main() {
             expect(workout.restingHr, 55);
             expect(workout.hrMax, maxHr);
             expect(app.activeWorkout, same(workout));
-            expect((await LocalDb.session(id))!['status'], 'live');
+            expect((await SessionStore.byId(id))!['status'], 'live');
             expect(
-              (await LocalDb.session(id))!['start_ts'],
+              (await SessionStore.byId(id))!['start_ts'],
               before['start_ts'],
             );
             expect(await (await LocalDb.instance).query('day_result'), isEmpty);
             await app.stopWorkout();
             expect(app.activeWorkout, isNull);
-            final saved = (await LocalDb.session(id))!;
+            final saved = (await SessionStore.byId(id))!;
             expect(saved['status'], 'done');
             expect(saved['start_ts'], before['start_ts']);
             expect(saved['type'], 'general_workout');

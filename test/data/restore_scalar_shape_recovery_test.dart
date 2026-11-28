@@ -153,7 +153,9 @@ void main() {
           }
           final rollup =
               jsonDecode(
-                    (await LocalDb.baseline('crossday'))!['payload_json']
+                    (await MetricSeriesStore.baseline(
+                          'crossday',
+                        ))!['payload_json']
                         as String,
                   )
                   as Map;
@@ -164,7 +166,9 @@ void main() {
           expect(await engine.crossDayInputs(), input);
           final again =
               jsonDecode(
-                    (await LocalDb.baseline('crossday'))!['payload_json']
+                    (await MetricSeriesStore.baseline(
+                          'crossday',
+                        ))!['payload_json']
                         as String,
                   )
                   as Map;

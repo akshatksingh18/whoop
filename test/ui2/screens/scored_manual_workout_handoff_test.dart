@@ -42,7 +42,7 @@ void main() {
           });
         }
         if (retime) {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': originalId,
             'start_ts': startSec + 60,
             'end_ts': endSec,

@@ -104,7 +104,10 @@ class WorkoutMeasurements {
     var steps = 0;
     var known = false;
     for (final w in clock.windows()) {
-      final resolved = await LocalDb.resolvedStepsForWindow(w.start, w.end);
+      final resolved = await StepCoverageStore.resolvedStepsForWindow(
+        w.start,
+        w.end,
+      );
       if (resolved.hasPhoneCoverage || resolved.total > 0) {
         known = true;
         steps += resolved.total;

@@ -32,7 +32,7 @@ void main() {
         'start_ts': start,
         'end_ts': end,
         'steps': steps,
-        'source': LocalDb.kStepSourcePhone,
+        'source': StepCoverageStore.kStepSourcePhone,
         'device_id': 'synthetic',
         'day': '2016-01-01',
       })
@@ -55,14 +55,14 @@ void main() {
           'value': 77,
         });
       }
-      final batch = await LocalDb.resolvedStepsByDay();
+      final batch = await StepCoverageStore.resolvedStepsByDay();
       for (final d in [
         '2016-01-01',
         '2016-01-02',
         '2016-01-03',
         '2016-01-05',
       ]) {
-        final direct = await LocalDb.resolvedStepsForDay(d);
+        final direct = await StepCoverageStore.resolvedStepsForDay(d);
         expect(batch[d]!.total, direct.total);
         expect(batch[d]!.hasPhoneCoverage, direct.hasPhoneCoverage);
       }
@@ -90,8 +90,8 @@ void main() {
     );
     DayClock.install([day], [ZoneChange(start, 'America/New_York')]);
     await coverage(start - 3600, start + 24 * 3600, 2500);
-    final direct = await LocalDb.resolvedStepsForDay(day.date);
-    final batch = await LocalDb.resolvedStepsByDay();
+    final direct = await StepCoverageStore.resolvedStepsForDay(day.date);
+    final batch = await StepCoverageStore.resolvedStepsByDay();
     expect(direct.total, 2300);
     expect(batch[day.date]!.total, direct.total);
   });

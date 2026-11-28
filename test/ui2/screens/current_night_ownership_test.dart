@@ -119,7 +119,7 @@ void main() {
               series: {'rhr': 52, 'rmssd': 44, 'readiness': 72, 'strain': 8},
             );
           }
-          await LocalDb.setFrozenHeadline(
+          await FrozenHeadlineStore.put(
             today,
             72,
             explanation: {'authored': 'retained'},
@@ -151,7 +151,7 @@ void main() {
           final results = await db.query('day_result');
           final series = await db.query('metric_series');
           final correction = await SleepOverrideStore.correction(today);
-          final pin = await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor);
+          final pin = await CursorStore.read(FrozenHeadlineStore.kCursorKey);
           final payload =
               jsonDecode(
                     (await LocalDb.dayResult(today))!['payload_json'] as String,
@@ -185,7 +185,7 @@ void main() {
           expect(await db.query('day_result'), results);
           expect(await db.query('metric_series'), series);
           expect(await SleepOverrideStore.correction(today), correction);
-          expect(await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor), pin);
+          expect(await CursorStore.read(FrozenHeadlineStore.kCursorKey), pin);
         },
       );
     }

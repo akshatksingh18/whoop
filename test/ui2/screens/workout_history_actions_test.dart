@@ -78,7 +78,7 @@ void main() {
               .subtract(Duration(days: age, hours: 3))
               .millisecondsSinceEpoch ~/
           1000;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'type': type,
         'start_ts': at,
@@ -210,7 +210,7 @@ void main() {
                     .isNotEmpty
               : null,
         );
-        final row = await t.runAsync(() => LocalDb.session('recent'));
+        final row = await t.runAsync(() => SessionStore.byId('recent'));
         expect(row == null, choice == 'Remove');
         expect(
           action('Open Running session'),

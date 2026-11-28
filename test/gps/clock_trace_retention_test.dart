@@ -28,7 +28,7 @@ void main() {
   });
   tearDownAll(LocalDb.close);
 
-  Future<void> row(String type, {double? calories}) => LocalDb.putSession({
+  Future<void> row(String type, {double? calories}) => SessionStore.put({
     'id': 'synthetic-clock',
     'type': type,
     'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -52,7 +52,7 @@ void main() {
           results: {'hr': previous, 'synthetic-evidence': 'retained'},
         ).persist();
         final ts = start.millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.commitSyncBatch(
+        await SyncLedgerStore.commitBatch(
           [
             for (var i = 0; i < 180; i++)
               RawRecord(
@@ -84,7 +84,7 @@ void main() {
         expect(saved.results['hr'], fuller ? previous : [100, 120, 140, null]);
         expect(saved.results['zones'], hasLength(5));
         expect(
-          (await LocalDb.session('synthetic-clock'))!['trace_samples'],
+          (await SessionStore.byId('synthetic-clock'))!['trace_samples'],
           180,
         );
         final db = await LocalDb.instance;
@@ -95,7 +95,7 @@ void main() {
           saved.results['hr'],
         );
         expect(
-          (await LocalDb.session('synthetic-clock'))!['trace_samples'],
+          (await SessionStore.byId('synthetic-clock'))!['trace_samples'],
           180,
         );
       },
@@ -123,7 +123,7 @@ void main() {
             'motion.synthetic-clock.${start.millisecondsSinceEpoch ~/ 1000}-${end.millisecondsSinceEpoch ~/ 1000}';
         await CalculationStore.write(key, jsonEncode(motion.toJson()));
         expect(await repo.repairSessionCalorieBasis(), 1);
-        final saved = (await LocalDb.session('synthetic-clock'))!;
+        final saved = (await SessionStore.byId('synthetic-clock'))!;
         expect(saved['calories_basis'], 'active');
         expect(
           saved['calories'],
@@ -131,7 +131,7 @@ void main() {
         );
         expect(await repo.repairSessionCalorieBasis(), 0);
         expect(
-          (await LocalDb.session('synthetic-clock'))!['calories'],
+          (await SessionStore.byId('synthetic-clock'))!['calories'],
           saved['calories'],
         );
         expect(

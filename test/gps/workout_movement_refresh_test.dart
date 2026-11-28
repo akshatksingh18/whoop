@@ -39,7 +39,7 @@ void main() {
   setUp(() async {
     await resetCoverageStore();
     start = DateTime.now().subtract(const Duration(minutes: 2));
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,
       'type': 'running',
@@ -66,7 +66,7 @@ void main() {
   tearDownAll(LocalDb.close);
 
   Future<List<Map<String, dynamic>>> addRoute() async {
-    await LocalDb.appendRoutePoints(id, [
+    await WorkoutRouteStore.appendPoints(id, [
       for (var i = 0; i < 2; i++)
         RoutePoint(
           seq: i,
@@ -80,14 +80,14 @@ void main() {
           speed: 1.85,
         ).toRow(id),
     ]);
-    return LocalDb.routePoints(id);
+    return WorkoutRouteStore.points(id);
   }
 
   test(
     'a second fresh refresh reads route data arriving after the held snapshot',
     () async {
       app.repo = reads = HeldMovementRead();
-      final session = await LocalDb.session(id);
+      final session = await SessionStore.byId(id);
       final first = app.refreshForeground();
       await reads.reached.future;
       final retained = await addRoute();
@@ -99,8 +99,8 @@ void main() {
       await Future.wait([first, second]);
       expect(reads.reads, 2);
       expect(app.liveDistanceKm, closeTo(.1112, .001));
-      expect(await LocalDb.routePoints(id), retained);
-      expect(await LocalDb.session(id), session);
+      expect(await WorkoutRouteStore.points(id), retained);
+      expect(await SessionStore.byId(id), session);
       expect(await (await LocalDb.instance).query('day_result'), isEmpty);
     },
   );
@@ -109,7 +109,7 @@ void main() {
     'a refused held read fails both waiters honestly and a fresh retry preserves the route',
     () async {
       app.repo = reads = HeldMovementRead(refuseFirst: true);
-      final session = await LocalDb.session(id);
+      final session = await SessionStore.byId(id);
       final first = app.refreshForeground();
       await reads.reached.future;
       final retained = await addRoute();
@@ -122,12 +122,12 @@ void main() {
       await Future.wait([a, b]);
       expect(reads.reads, 1);
       expect(app.liveDistanceKm, isNull);
-      expect(await LocalDb.routePoints(id), retained);
+      expect(await WorkoutRouteStore.points(id), retained);
       await app.refreshForeground();
       expect(reads.reads, 2);
       expect(app.liveDistanceKm, closeTo(.1112, .001));
-      expect(await LocalDb.routePoints(id), retained);
-      expect(await LocalDb.session(id), session);
+      expect(await WorkoutRouteStore.points(id), retained);
+      expect(await SessionStore.byId(id), session);
       expect(await (await LocalDb.instance).query('day_result'), isEmpty);
     },
   );

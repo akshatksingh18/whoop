@@ -58,7 +58,7 @@ class _History {
       1000;
   Future<void> measured(int i, int steps) async {
     final start = noon(i), end = start + 3600;
-    await LocalDb.replacePhoneCoverageForDay(
+    await StepCoverageStore.replacePhoneForDay(
       dayLabelOf(dates[i]),
       [(startTs: start, endTs: end, steps: steps)],
       distances: {'$start-$end': steps / 2},
@@ -67,7 +67,7 @@ class _History {
 
   Future<void> seed() async {
     for (final i in mixed ? [0, 1, 2] : [unknown]) {
-      await LocalDb.putMetricSeriesValue(
+      await MetricSeriesStore.putValue(
         dayLabelOf(dates[i]),
         'steps',
         values[i],

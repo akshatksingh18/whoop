@@ -66,12 +66,12 @@ Future<void> _seedHr(
     raws.add(_raw(ts, ts));
     samples.add(_sample(ts, ts, hr));
   }
-  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: deviceFamily);
+  await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: deviceFamily);
 }
 
 // Synthetic measured motion, separate from HR: a run's energy requires distance.
 Future<void> _seedRoute(String id, int start) async {
-  await LocalDb.appendRoutePoints(id, [
+  await WorkoutRouteStore.appendPoints(id, [
     for (var i = 0; i <= 60; i++)
       RoutePoint(
         seq: i,
@@ -210,7 +210,7 @@ void main() {
     // What the detector reported: the hard-effort CORE only, 25 minutes of a
     // two-hour session, written the way _logDetectedSession writes one.
     const detectedMin = 25;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'auto:$start',
       'start_ts': start,
       'end_ts': start + detectedMin * 60,
@@ -255,7 +255,7 @@ void main() {
 
   test('retiming does not leave the old row behind as a duplicate', () async {
     final start = sessionStart - 9 * 86400;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'w-retime',
       'start_ts': start,
       'end_ts': start + 600,
@@ -271,7 +271,7 @@ void main() {
       endTs: start + 3600,
     );
 
-    final rows = await LocalDb.sessionsInRange(start - 60, start + 7200);
+    final rows = await SessionStore.inRange(start - 60, start + 7200);
     expect(rows.where((r) => r['id'] == 'w-retime').length, 1);
     expect(rows.firstWhere((r) => r['id'] == 'w-retime')['duration_min'], 60);
   });
@@ -280,7 +280,7 @@ void main() {
     'logging a session retires the auto-detect suggestion it covers',
     () async {
       final start = sessionStart - 12 * 86400;
-      await LocalDb.putWorkoutSuggestion({
+      await WorkoutSuggestionStore.put({
         'id': 'sug-covered',
         'date': '2026-01-01',
         'start_ts': start + 900, // the fragment, inside the real session
@@ -289,7 +289,7 @@ void main() {
         'sport': 'cardio',
         'created_at': start * 1000,
       });
-      await LocalDb.putWorkoutSuggestion({
+      await WorkoutSuggestionStore.put({
         'id': 'sug-elsewhere',
         'date': '2026-01-01',
         'start_ts': start + 40000, // an unrelated effort later that day
@@ -305,7 +305,7 @@ void main() {
         type: 'cardio',
       );
 
-      final active = await LocalDb.activeWorkoutSuggestions();
+      final active = await WorkoutSuggestionStore.active();
       final ids = [for (final s in active) s['id']];
       expect(
         ids,
@@ -336,14 +336,14 @@ void main() {
           ).toRow(id),
         );
       }
-      await LocalDb.appendRoutePoints(id, rows);
+      await WorkoutRouteStore.appendPoints(id, rows);
     }
 
     test('narrowing a session clips its route — no 90 minutes of GPS under a '
         '60 minute hero', () async {
       final start = sessionStart - 30 * 86400;
       await _seedHr(start, 5400, 140);
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'w-route',
         'start_ts': start,
         'end_ts': start + 5400, // 90 min as recorded
@@ -382,7 +382,7 @@ void main() {
       'clipping to a window with under two fixes yields no map at all',
       () async {
         final start = sessionStart - 33 * 86400;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'w-route-tiny',
           'start_ts': start,
           'end_ts': start + 3600,
@@ -417,7 +417,7 @@ void main() {
         // Self-contained: this used to read the rows the narrowing test above
         // happened to leave behind, so it failed the moment it ran alone.
         final start = sessionStart - 46 * 86400;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'w-route-keep',
           'start_ts': start,
           'end_ts': start + 5400,
@@ -428,7 +428,7 @@ void main() {
           'created_at': start * 1000,
         });
         await seedRoute('w-route-keep', start, 5400);
-        final before = (await LocalDb.routePoints('w-route-keep')).length;
+        final before = (await WorkoutRouteStore.points('w-route-keep')).length;
         await repo.setWorkoutWindow(
           'w-route-keep',
           startTs: start,
@@ -437,7 +437,7 @@ void main() {
 
         // The cascade delete lives on deleteSession; putSession must not touch
         // workout_route, or widening back would silently lose the map forever.
-        final rows = await LocalDb.routePoints('w-route-keep');
+        final rows = await WorkoutRouteStore.points('w-route-keep');
         expect(rows.length, before);
         expect(
           rows.length,
@@ -500,7 +500,7 @@ void main() {
       );
 
       // Nothing was written.
-      final rows = await LocalDb.sessionsInRange(start + 1800, start + 1800);
+      final rows = await SessionStore.inRange(start + 1800, start + 1800);
       expect(rows.where((r) => r['start_ts'] == start + 1800), isEmpty);
     });
 
@@ -546,7 +546,7 @@ void main() {
         // Regression: without editingId, widening ANY saved session overlaps
         // itself and would be permanently unfixable.
         final start = sessionStart - 40 * 86400;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'w-self-overlap',
           'start_ts': start,
           'end_ts': start + 600,
@@ -571,7 +571,7 @@ void main() {
       // buildManualSessionRow always writes status 'done', so retiming a
       // running session would silently end it.
       final start = sessionStart - 43 * 86400;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'w-live',
         'start_ts': start,
         'end_ts': null,
@@ -584,7 +584,7 @@ void main() {
         repo.setWorkoutWindow('w-live', startTs: start, endTs: start + 3600),
         throwsA(isA<StateError>()),
       );
-      final row = await LocalDb.session('w-live');
+      final row = await SessionStore.byId('w-live');
       expect(row!['status'], 'live', reason: 'must not have been ended');
     });
   });
@@ -605,7 +605,7 @@ void main() {
       );
       expect(a['workout_id'], b['workout_id']);
 
-      final rows = await LocalDb.sessionsInRange(start - 60, start + 3600);
+      final rows = await SessionStore.inRange(start - 60, start + 3600);
       expect(rows.where((r) => r['id'] == a['workout_id']).length, 1);
     },
   );

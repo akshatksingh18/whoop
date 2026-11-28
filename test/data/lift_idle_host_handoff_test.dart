@@ -62,7 +62,7 @@ void main() {
         final last = start.add(const Duration(minutes: 30));
         final a = activityByName('Weight training')!;
         await t.runAsync(() async {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'type': a.typeKey,
             'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -115,7 +115,7 @@ void main() {
           expect(chosenClock.end, isNull);
           expect(LiveDraft.current, isNotNull);
           expect(app.activeWorkout!.workoutId, id);
-          final stillLive = (await t.runAsync(() => LocalDb.session(id)))!;
+          final stillLive = (await t.runAsync(() => SessionStore.byId(id)))!;
           expect(stillLive['status'], 'live');
           expect(
             (await t.runAsync(() => LiftLogDb.forSession(id)))!.endedAt,
@@ -138,7 +138,7 @@ void main() {
         }
         expect(find.byType(ActivitySummary), findsOneWidget);
         final summary = t.widget<ActivitySummary>(find.byType(ActivitySummary));
-        final row = (await t.runAsync(() => LocalDb.session(id)))!;
+        final row = (await t.runAsync(() => SessionStore.byId(id)))!;
         final log = (await t.runAsync(() => LiftLogDb.forSession(id)))!;
         final end = chosenClock.end!;
         if (choice == 'Finish at last set') {

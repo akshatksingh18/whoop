@@ -24,7 +24,7 @@ class App extends AppState {
     }
     // An importer can commit one table before a later table fails. The router
     // must count and retain that work, not label the whole selection a failure.
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': name,
       'type': 'swimming',
       'start_ts': 1617710400,
@@ -111,9 +111,9 @@ void main() {
       expect(out.readError, contains('refused.db, partial.db'));
       expect(out.readError, contains('synthetic backup preflight refusal'));
       expect(out.rollupError, 'synthetic summary refusal');
-      expect(await LocalDb.session('refused.db'), isNull);
-      expect(await LocalDb.session('partial.db'), isNotNull);
-      expect(await LocalDb.session('accepted.db'), isNotNull);
+      expect(await SessionStore.byId('refused.db'), isNull);
+      expect(await SessionStore.byId('partial.db'), isNotNull);
+      expect(await SessionStore.byId('accepted.db'), isNotNull);
     },
   );
 
@@ -171,7 +171,7 @@ void main() {
         throwsStateError,
       );
       expect((await LocalDb.instance).isOpen, true);
-      expect(await LocalDb.session('refused.db'), isNull);
+      expect(await SessionStore.byId('refused.db'), isNull);
     },
   );
 }

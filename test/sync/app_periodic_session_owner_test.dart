@@ -33,7 +33,7 @@ void main() {
             generation: 'gen4',
           );
         final timers = <ManualPeriodicTimer>[];
-        await LocalDb.setCursor('authored-old-frontier', 'keep');
+        await CursorStore.write('authored-old-frontier', 'keep');
         try {
           await runZoned(
             app.openSession,
@@ -73,7 +73,7 @@ void main() {
             band.calls.where((c) => c == 'history' || c == 'sync'),
             background ? isEmpty : ['history', 'sync'],
           );
-          expect(await LocalDb.getCursor('authored-old-frontier'), 'keep');
+          expect(await CursorStore.read('authored-old-frontier'), 'keep');
           expect(timer.tick, 1);
 
           await app.endSession();

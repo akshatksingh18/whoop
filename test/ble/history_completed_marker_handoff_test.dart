@@ -39,7 +39,7 @@ void main() {
           engine.debugInstallFakeLink(
             band: band,
             onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-                LocalDb.commitSyncBatch(
+                SyncLedgerStore.commitBatch(
                   raw,
                   samples,
                   trimToken: token,
@@ -100,7 +100,7 @@ void main() {
             final legacySamples = await db.query('samples', orderBy: 'rowid');
             final decoded = await db.query('decoded_onehz', orderBy: 'ts_ms');
             final archived = await db.query('raw_archive', orderBy: 'rowid');
-            final cursor = await LocalDb.getCursor('strap_trim');
+            final cursor = await CursorStore.read('strap_trim');
             expect(cursor, '8172635445362718');
             expect(decoded, hasLength(1));
             final acknowledgements = writes
@@ -126,7 +126,7 @@ void main() {
               await db.query('sync_ledger');
               await Future<void>.delayed(const Duration(milliseconds: 30));
             }
-            expect(await LocalDb.getCursor('strap_trim'), cursor);
+            expect(await CursorStore.read('strap_trim'), cursor);
             expect(await db.query('samples', orderBy: 'rowid'), legacySamples);
             expect(await db.query('decoded_onehz', orderBy: 'ts_ms'), decoded);
             expect(await db.query('raw_archive', orderBy: 'rowid'), archived);

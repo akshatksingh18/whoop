@@ -79,7 +79,9 @@ void main() {
             final rows = await db.query('live_coverage');
             expect(rows, isNotEmpty);
             expect(
-              rows.every((r) => r['source'] == LocalDb.kStepSourcePhone),
+              rows.every(
+                (r) => r['source'] == StepCoverageStore.kStepSourcePhone,
+              ),
               true,
             );
             expect(
@@ -94,7 +96,7 @@ void main() {
             expect(Prefs.getString('authored-choice', ''), 'retain');
             expect(await db.query('decoded_onehz'), isEmpty);
             expect(await db.query('day_result'), isEmpty);
-            expect(await LocalDb.computeJobs(), isEmpty);
+            expect(await ComputeJobStore.jobs(), isEmpty);
           } finally {
             if (!release.isCompleted) release.complete();
             await sync;

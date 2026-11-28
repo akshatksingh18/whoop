@@ -33,7 +33,9 @@ void main() {
         await seedContinuityNight(first);
         expect(await engine.run(profile, force: true), 1);
         final original =
-            (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+            (await MetricSeriesStore.baseline(
+                  'sleep_user_profile',
+                ))!['payload_json']
                 as String;
         expect(SleepProfilePolicy.foldedDays(original), {first});
         expect((jsonDecode(original) as Map)['nights'], 1);
@@ -58,12 +60,14 @@ void main() {
           expect(row['rhr'], isNull);
           expect(row['rmssd'], isNull);
           expect(
-            await LocalDb.sleepSessionCandidate(day, kAlgoVersion),
+            await SleepIntermediateStore.candidate(day, kAlgoVersion),
             isNotNull,
           );
         }
         final learned =
-            (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+            (await MetricSeriesStore.baseline(
+                  'sleep_user_profile',
+                ))!['payload_json']
                 as String;
         expect(
           SleepProfilePolicy.foldedDays(learned),
@@ -92,14 +96,18 @@ void main() {
         // retry a failed optional fold; a successful prior fold stays idempotent.
         expect(await engine.run(profile, force: true), 2);
         final retried =
-            (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+            (await MetricSeriesStore.baseline(
+                  'sleep_user_profile',
+                ))!['payload_json']
                 as String;
         expect(SleepProfilePolicy.foldedDays(retried), {first, second});
         expect((jsonDecode(retried) as Map)['nights'], 2);
         if (!refuse) expect(retried, learned);
         expect(await engine.run(profile, force: true), 2);
         expect(
-          (await LocalDb.baseline('sleep_user_profile'))!['payload_json'],
+          (await MetricSeriesStore.baseline(
+            'sleep_user_profile',
+          ))!['payload_json'],
           retried,
         );
         expect(engine.running, false);

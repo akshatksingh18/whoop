@@ -141,7 +141,7 @@ void main() {
         );
       }
       await LocalDb.upsertDevice(adapterId: 'gen4');
-      await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
+      await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
       final logs = <String>[], done = <String>[];
       final engine = DerivationEngine(background: true, log: logs.add);
       expect(
@@ -214,7 +214,7 @@ void main() {
         row['payload_json'] as String,
       )!;
       expect((bundle['scalars'] as Map)['rhr'], isNotNull);
-      final suggestions = await LocalDb.activeWorkoutSuggestions();
+      final suggestions = await WorkoutSuggestionStore.active();
       expect(suggestions, hasLength(1));
       final suggestion = suggestions.single;
       expect(suggestion['date'], day);
@@ -227,7 +227,7 @@ void main() {
           .route!;
       expect(Uri.parse(route).queryParameters['id'], suggestion['id']);
       // Logging the actual window supersedes the suggestion without deleting it.
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'synthetic-accepted',
         'type': 'general_workout',
         'start_ts': suggestion['start_ts'],
@@ -236,7 +236,7 @@ void main() {
         'source': 'manual',
         'created_at': 1,
       });
-      expect(await LocalDb.activeWorkoutSuggestions(), isEmpty);
+      expect(await WorkoutSuggestionStore.active(), isEmpty);
       expect(await db.query('workout_suggestions'), hasLength(1));
       expect(row['partial'], 0);
     },

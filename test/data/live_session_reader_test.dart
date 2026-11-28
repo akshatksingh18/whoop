@@ -28,7 +28,7 @@ void main() {
           final startSec =
               (DateTime.now().millisecondsSinceEpoch ~/ 60000 - 5) * 60;
           final start = DateTime.fromMillisecondsSinceEpoch(startSec * 1000);
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'start_ts': startSec,
             'status': 'live',
@@ -62,7 +62,7 @@ void main() {
           final seconds = measured
               ? <int>[for (var i = 0; i < 180; i++) i]
               : <int>[0];
-          await LocalDb.commitSyncBatch(
+          await SyncLedgerStore.commitBatch(
             [
               for (final i in seconds)
                 RawRecord(
@@ -88,7 +88,7 @@ void main() {
             deviceFamily: 'gen4',
           );
           final db = await LocalDb.instance;
-          final before = await LocalDb.session(id);
+          final before = await SessionStore.byId(id);
           final storedClock = await CalculationStore.read('workout.clock.$id');
           final decoded = await db.query('decoded_onehz');
           var changes = 0;
@@ -126,7 +126,7 @@ void main() {
               expect(detail['hr'], isNull);
               expect(detail['trace_samples'], isNull);
             }
-            expect(await LocalDb.session(id), before);
+            expect(await SessionStore.byId(id), before);
             expect(
               await CalculationStore.read('workout.clock.$id'),
               storedClock,

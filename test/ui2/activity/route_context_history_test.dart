@@ -82,7 +82,7 @@ void main() {
   Future<App> seed() async {
     final app = App()..user = profile.toMap();
     app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'synthetic-route',
       'type': 'hiking',
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,

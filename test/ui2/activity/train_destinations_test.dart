@@ -94,7 +94,7 @@ void main() {
     bool route = false,
   }) async {
     final ts = at.millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'type': type,
       'start_ts': ts,
@@ -108,7 +108,7 @@ void main() {
       'strain': 3.2,
     });
     if (route) {
-      await LocalDb.appendRoutePoints(id, [
+      await WorkoutRouteStore.appendPoints(id, [
         for (var i = 0; i <= 600; i++)
           RoutePoint(
             seq: i,
@@ -274,7 +274,7 @@ void main() {
       expect(find.byType(ActivitySummary), findsNothing);
       expect(
         (await t.runAsync(
-          () => LocalDb.session('synthetic-unknown'),
+          () => SessionStore.byId('synthetic-unknown'),
         ))!['end_ts_fabricated'],
         1,
       );

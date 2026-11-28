@@ -24,7 +24,7 @@ void main() {
         bool unknownEnd = false,
       }) async {
         final start = now.subtract(ago).millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': start,
           'end_ts': live ? null : start + minutes * 60,

@@ -40,7 +40,7 @@ void main() {
       Prefs.backupCadence: 'daily',
       'authored-unrelated-setting': 'keep',
     });
-    await LocalDb.setCursor('authored-retained-cursor', 'keep');
+    await CursorStore.write('authored-retained-cursor', 'keep');
   });
   tearDown(() => FlutterSecureStoragePlatform.instance = original);
   tearDownAll(LocalDb.close);
@@ -72,7 +72,7 @@ void main() {
           app.logLines.any((s) => s.contains('used after being disposed')),
           false,
         );
-        expect(await LocalDb.getCursor('authored-retained-cursor'), 'keep');
+        expect(await CursorStore.read('authored-retained-cursor'), 'keep');
         expect(Prefs.getString('authored-unrelated-setting', ''), 'keep');
         expect(Prefs.getString(Prefs.backupCadence, ''), 'daily');
         final documents = await getApplicationDocumentsDirectory();
@@ -90,7 +90,7 @@ void main() {
           next.logLines.any((s) => s.contains('used after being disposed')),
           false,
         );
-        expect(await LocalDb.getCursor('authored-retained-cursor'), 'keep');
+        expect(await CursorStore.read('authored-retained-cursor'), 'keep');
       },
     );
   }

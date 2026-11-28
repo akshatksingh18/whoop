@@ -413,11 +413,11 @@ Future<String> writeAnalysisExport({
   // workouts included.
   final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
   final allSessions = [
-    for (final s in await LocalDb.sessionsInRange(0, nowSec))
+    for (final s in await SessionStore.inRange(0, nowSec))
       if ((s['private'] as num?)?.toInt() != 1) s,
   ];
   final privateIds = {
-    for (final s in await LocalDb.sessionsInRange(0, nowSec))
+    for (final s in await SessionStore.inRange(0, nowSec))
       if ((s['private'] as num?)?.toInt() == 1) s['id'] as String,
   };
   lifts = [

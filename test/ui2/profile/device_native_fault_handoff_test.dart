@@ -38,7 +38,7 @@ void main() {
       testWidgets(
         'band detail native $state blocker at ${scale}x clears only after healthy reconnect',
         (t) async {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-retained-device',
             'start_ts': 1617714000,
             'type': 'running',
@@ -46,7 +46,7 @@ void main() {
             'source': 'manual',
             'created_at': 1,
           });
-          final retained = await LocalDb.session('authored-retained-device');
+          final retained = await SessionStore.byId('authored-retained-device');
           final app = AppState.forTesting()
             ..paired = PairedDevice(Peripheral.id.str, 'Authored band');
           peripheral.engine = app.engine;
@@ -140,7 +140,7 @@ void main() {
             expect(app.paired!.remoteId, Peripheral.id.str);
             expect(
               await t.runAsync(
-                () => LocalDb.session('authored-retained-device'),
+                () => SessionStore.byId('authored-retained-device'),
               ),
               retained,
             );

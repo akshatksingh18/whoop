@@ -49,7 +49,7 @@ void main() {
       'a refused pairing read releases the headless lease: restore=$restore',
       () async {
         const frontier = 1617711234;
-        await LocalDb.setCursor('rec_ts_hw', '$frontier');
+        await CursorStore.write('rec_ts_hw', '$frontier');
         await PairedDevice.save(
           Peripheral.id.str,
           'Authored band',
@@ -94,9 +94,9 @@ void main() {
         );
         expect(await db.query('device'), identity);
         expect(await db.query('sync_cursor'), cursors);
-        expect(await LocalDb.getCursorInt('rec_ts_hw'), frontier);
+        expect(await CursorStore.readInt('rec_ts_hw'), frontier);
         expect(await db.query('decoded_onehz'), isEmpty);
-        expect(await LocalDb.computeJobs(), isEmpty);
+        expect(await ComputeJobStore.jobs(), isEmpty);
         expect(replies, restore ? ['syncDone', 'syncDone'] : isEmpty);
       },
     );

@@ -53,7 +53,7 @@ void main() {
           offsetTs: start + 7 * 3600,
           source: 'manual',
         );
-        await LocalDb.setFrozenHeadline(
+        await FrozenHeadlineStore.put(
           day,
           72,
           explanation: {'authored': 'retained pin'},
@@ -128,7 +128,7 @@ void main() {
           expect(await db.query('decoded_onehz'), raw);
           expect((await repo.getDaySleep(day))['has_sleep'], false);
           expect((await repo.getDayHrv(day))['rmssd'], isNull);
-          expect(await LocalDb.frozenHeadline(), isNull);
+          expect(await FrozenHeadlineStore.read(), isNull);
           // Confirm reads the saved proposal;after an explicit correction it is
           // intentionally unavailable. Resume the accepted pending edit instead.
           await app.openSession();

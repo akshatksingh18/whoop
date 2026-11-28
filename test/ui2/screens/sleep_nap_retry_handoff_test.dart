@@ -45,7 +45,7 @@ void main() {
         );
         final dayRows = await db.query('day_result');
         final edits = await SleepNapStore.edits(day);
-        final stamp = await LocalDb.baseline('nap_dirty:$day');
+        final stamp = await MetricSeriesStore.baseline('nap_dirty:$day');
         expect(edits, hasLength(1));
         expect(stamp, isNotNull);
 
@@ -80,7 +80,7 @@ void main() {
         await io(t);
         expect(app.insightsRevision.value, revision + 1);
         expect(app.napRebuilding, isFalse);
-        expect(await LocalDb.baseline('nap_dirty:$day'), stamp);
+        expect(await MetricSeriesStore.baseline('nap_dirty:$day'), stamp);
         expect(await SleepNapStore.edits(day), edits);
         expect(retry, findsOneWidget);
 

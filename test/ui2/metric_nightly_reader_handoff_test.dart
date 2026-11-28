@@ -35,8 +35,8 @@ void main() {
             ..repo = LocalRepositoryImpl(getProfileMap: () => {});
           addTearDown(app.dispose);
           for (var i = 19; i >= 0; i--) {
-            await LocalDb.putMetricSeriesValue(_ago(i), 'rmssd', 69.0 - i);
-            await LocalDb.putMetricSeriesValue(
+            await MetricSeriesStore.putValue(_ago(i), 'rmssd', 69.0 - i);
+            await MetricSeriesStore.putValue(
               _ago(i),
               'ln_rmssd_v2',
               math.log(69 - i),

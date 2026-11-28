@@ -3,8 +3,9 @@
 //  1. decoded_rr REC_TS KEY — a post-reboot rec_ts collision (two counters, one
 //     second) keeps exactly the winner's beats; the write path DELETEs the
 //     second's beats before reinserting, so a shrinking beat count strands none.
-//  2. prune BY REC_TS — pruneDecodedBeforeRecTs deletes decoded_rr by its rec_ts
-//     key (no counter subquery, no orphan sweep) and keeps recent beats.
+//  2. prune BY REC_TS — StorageRetentionStore.pruneDecodedBefore deletes
+//     decoded_rr by its rec_ts key (no counter subquery, no orphan sweep) and
+//     keeps recent beats.
 //  3. importFromDbFile FINALIZED protection — a foreign export never overwrites
 //     a locally-finalized (day_id, algo_version) day_result row; non-finalized
 //     rows keep the merge-REPLACE behavior.
@@ -57,7 +58,7 @@ void main() {
   });
 
   test('fresh schema passes schemaHealth (migration smoke)', () async {
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 
@@ -171,7 +172,9 @@ void main() {
     const keepTs = 1780000500;
     await LocalDb.insertRecord(_raw(keepTs, 7), _sample(keepTs, 7, [700]));
 
-    final deleted = await LocalDb.pruneDecodedBeforeRecTs(oldTs + 1000);
+    final deleted = await StorageRetentionStore.pruneDecodedBefore(
+      oldTs + 1000,
+    );
 
     final old = await db.query(
       'decoded_rr',
@@ -388,7 +391,7 @@ void main() {
     test('fires all three checkpoints in order on a normal commit', () async {
       const ts = 1790000000;
       final messages = <String>[];
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [_raw(ts, 9001)],
         [
           _sample(ts, 9001, [800]),
@@ -416,7 +419,7 @@ void main() {
     test('a throwing onCheckpoint callback never aborts the commit', () async {
       const ts = 1790000100;
       var calls = 0;
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [_raw(ts, 9002)],
         [
           _sample(ts, 9002, [810]),
@@ -441,7 +444,7 @@ void main() {
       'with no onCheckpoint given, nothing is called and commit still works',
       () async {
         const ts = 1790000200;
-        await LocalDb.commitSyncBatch(
+        await SyncLedgerStore.commitBatch(
           [_raw(ts, 9003)],
           [
             _sample(ts, 9003, [820]),

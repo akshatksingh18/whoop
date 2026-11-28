@@ -70,7 +70,7 @@ void main() {
           final resume = start.add(const Duration(minutes: 2));
           final paused = scenario == 'paused' || scenario == 'partial';
           final saved = (await t.runAsync(() async {
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': id,
               'type': type,
               'start_ts': sec(start),
@@ -81,7 +81,7 @@ void main() {
               'created_at': 1617696000000,
               'source': 'manual',
             });
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': 'authored-unrelated-history',
               'type': 'cycling',
               'start_ts': sec(start) - 86400,
@@ -97,7 +97,7 @@ void main() {
               profile: profile,
               pauses: paused ? [(start: pause, end: resume)] : [],
             ).persist();
-            await LocalDb.appendRoutePoints(id, [
+            await WorkoutRouteStore.appendPoints(id, [
               for (var i = 0; i <= 16; i++)
                 RoutePoint(
                   seq: i,
@@ -141,9 +141,9 @@ void main() {
               ordinal++;
             }
             return (
-              row: (await LocalDb.session(id))!,
-              other: (await LocalDb.session('authored-unrelated-history'))!,
-              route: await LocalDb.routePoints(id),
+              row: (await SessionStore.byId(id))!,
+              other: (await SessionStore.byId('authored-unrelated-history'))!,
+              route: await WorkoutRouteStore.points(id),
               routeKm:
                   (await app.repo!.getWorkoutRoute(id))!.distanceMeters / 1000,
             );
@@ -185,7 +185,7 @@ void main() {
           }
           expect(nativeCalls, isEmpty);
           await t.runAsync(() async {
-            final after = (await LocalDb.session(id))!;
+            final after = (await SessionStore.byId(id))!;
             for (final name in [
               'id',
               'type',
@@ -199,10 +199,10 @@ void main() {
               expect(after[name], saved.row[name], reason: name);
             }
             expect(
-              await LocalDb.session('authored-unrelated-history'),
+              await SessionStore.byId('authored-unrelated-history'),
               saved.other,
             );
-            expect(await LocalDb.routePoints(id), saved.route);
+            expect(await WorkoutRouteStore.points(id), saved.route);
             expect(await (await LocalDb.instance).query('day_result'), isEmpty);
           });
         },

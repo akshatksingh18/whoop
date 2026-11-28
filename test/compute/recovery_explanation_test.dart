@@ -89,7 +89,7 @@ void main() {
       windowJson: '{}',
       series: {'readiness': 56},
     );
-    await LocalDb.putComputeFreshness(
+    await ComputeFreshnessStore.put(
       'today',
       jsonEncode({
         'today_day': day,
@@ -124,14 +124,14 @@ void main() {
     ],
   )!;
   Future<void> pin() =>
-      LocalDb.setFrozenHeadline(day, 80, explanation: snapshot());
+      FrozenHeadlineStore.put(day, 80, explanation: snapshot());
   test(
     'a later calculation cannot change the original points, values or comparison behind the pinned score',
     () async {
       await pin();
       // The normal scalar history now disagrees too: it must not leak into the saved comparison.
-      await LocalDb.putMetricSeriesValue(day, 'ln_rmssd_v2', math.log(42));
-      await LocalDb.putMetricSeriesValue(day, 'rhr', 60);
+      await MetricSeriesStore.putValue(day, 'ln_rmssd_v2', math.log(42));
+      await MetricSeriesStore.putValue(day, 'rhr', 60);
       final d = await ReadinessData.load(repo);
       expect(d.readiness.value, 80);
       expect(sumPoints(d), 80);
@@ -160,7 +160,7 @@ void main() {
   test(
     'an older pin has no invented reconstruction even when a complete later breakdown exists',
     () async {
-      await LocalDb.setFrozenHeadline(day, 80);
+      await FrozenHeadlineStore.put(day, 80);
       final d = await ReadinessData.load(repo);
       expect(d.readiness.value, 80);
       expect(d.breakdown, isEmpty);
@@ -209,7 +209,7 @@ void main() {
         where: 'day_id = ?',
         whereArgs: [day],
       );
-      await LocalDb.putComputeFreshness(
+      await ComputeFreshnessStore.put(
         'today',
         jsonEncode({
           'today_day': day,
@@ -231,28 +231,28 @@ void main() {
       await LocalDb.close();
       expect(sumPoints(await ReadinessData.load(repo)), 80);
       final next = dayLabelOf(DateTime.parse(day).add(const Duration(days: 1)));
-      await LocalDb.setFrozenHeadline(next, 70);
-      expect(await LocalDb.frozenHeadlineExplanation(day, 80), isNull);
-      expect(await LocalDb.frozenHeadlineExplanation(next, 70), isNull);
+      await FrozenHeadlineStore.put(next, 70);
+      expect(await FrozenHeadlineStore.explanation(day, 80), isNull);
+      expect(await FrozenHeadlineStore.explanation(next, 70), isNull);
     },
   );
   test(
     'database export, wipe and restore retain the score and original evidence together',
     () async {
       await pin();
-      final before = await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor);
+      final before = await CursorStore.read(FrozenHeadlineStore.kCursorKey);
       final path = await LocalDb.exportCopy();
       try {
         await LocalDb.wipeAll();
-        expect(await LocalDb.frozenHeadline(), isNull);
+        expect(await FrozenHeadlineStore.read(), isNull);
         await LocalDb.importFromDbFile(path);
-        expect(await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor), before);
-        expect((await LocalDb.frozenHeadline())!.value, 80);
+        expect(await CursorStore.read(FrozenHeadlineStore.kCursorKey), before);
+        expect((await FrozenHeadlineStore.read())!.value, 80);
         expect(
-          (await LocalDb.frozenHeadlineExplanation(day, 80))!['hrv_series'],
+          (await FrozenHeadlineStore.explanation(day, 80))!['hrv_series'],
           isNotEmpty,
         );
-        expect(await LocalDb.frozenHeadlineExplanation(day, 56), isNull);
+        expect(await FrozenHeadlineStore.explanation(day, 56), isNull);
       } finally {
         await File(path).delete();
       }
@@ -335,7 +335,7 @@ void main() {
           e['composite'] = (later['clinical'] as Map)['readiness_composite'];
         }
         if (shape == 'missing values') e.remove('values');
-        await LocalDb.setFrozenHeadline(day, 80, explanation: e);
+        await FrozenHeadlineStore.put(day, 80, explanation: e);
         final d = await ReadinessData.load(repo);
         expect(d.readiness.value, 80);
         expect(d.breakdown, isEmpty);
@@ -407,7 +407,7 @@ void main() {
       'the older-pin state keeps score/history and honest copy readable at ${scale}x',
       (t) async {
         final d = await t.runAsync(() async {
-          await LocalDb.setFrozenHeadline(day, 80);
+          await FrozenHeadlineStore.put(day, 80);
           return ReadinessData.load(repo);
         });
         t.view.physicalSize = const Size(390, 844);

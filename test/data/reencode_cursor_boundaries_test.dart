@@ -18,7 +18,7 @@ void main() {
       await seedLegacy(db, '2021-04-0$day', t0 + day * 86400);
     }
   });
-  tearDown(() => LocalDb.debugAfterReencodePrepare = null);
+  tearDown(() => SeriesReencodeStore.debugAfterPrepare = null);
   tearDownAll(LocalDb.close);
   Future<Map<String, Object?>> row(String day) async =>
       (await (await LocalDb.instance).query(
@@ -28,8 +28,8 @@ void main() {
       )).single;
   Future<Map<String, dynamic>> cursor() async =>
       jsonDecode(
-            (await LocalDb.computeFreshness(
-                  LocalDb.kReencodeCursorKey,
+            (await ComputeFreshnessStore.read(
+                  SeriesReencodeStore.kCursorKey,
                 ))!['payload_json']
                 as String,
           )
@@ -39,11 +39,11 @@ void main() {
     'a legacy day-only cursor converts strictly older rows without touching the cursor day',
     () async {
       final original = await row('2021-04-06');
-      await LocalDb.putComputeFreshness(
-        LocalDb.kReencodeCursorKey,
+      await ComputeFreshnessStore.put(
+        SeriesReencodeStore.kCursorKey,
         jsonEncode({'cursor': '2021-04-06', 'done': false}),
       );
-      expect(await LocalDb.reencodeLegacyDayResults(limit: 3), 2);
+      expect(await SeriesReencodeStore.run(limit: 3), 2);
       expect(await row('2021-04-06'), original);
       for (var day = 4; day <= 5; day++) {
         final converted = await row('2021-04-0$day');
@@ -59,7 +59,7 @@ void main() {
         expect(converted['finalized'], 1);
       }
       expect(await cursor(), containsPair('done', true));
-      expect(await LocalDb.reencodeLegacyDayResults(limit: 3), 0);
+      expect(await SeriesReencodeStore.run(limit: 3), 0);
     },
   );
 
@@ -68,8 +68,8 @@ void main() {
       'a competing ${resumed ? 'first resumed' : 'middle'} row is preserved and converted on retry',
       () async {
         if (resumed) {
-          await LocalDb.putComputeFreshness(
-            LocalDb.kReencodeCursorKey,
+          await ComputeFreshnessStore.put(
+            SeriesReencodeStore.kCursorKey,
             jsonEncode({
               'cursor': '2021-04-06',
               'cursor_version': 47,
@@ -79,7 +79,7 @@ void main() {
         }
         final original = await row('2021-04-05');
         final fresh = bundleFor(t0 + 1234);
-        LocalDb.debugAfterReencodePrepare = () async {
+        SeriesReencodeStore.debugAfterPrepare = () async {
           await (await LocalDb.instance).update(
             'day_result',
             {'payload_json': jsonEncode(fresh)},
@@ -87,10 +87,7 @@ void main() {
             whereArgs: ['2021-04-05', 47],
           );
         };
-        expect(
-          await LocalDb.reencodeLegacyDayResults(limit: 3),
-          resumed ? 1 : 2,
-        );
+        expect(await SeriesReencodeStore.run(limit: 3), resumed ? 1 : 2);
         expect(
           SeriesCodec.decodePayloadJson(
             (await row('2021-04-05'))['payload_json'],
@@ -100,8 +97,8 @@ void main() {
         expect(await cursor(), containsPair('cursor', '2021-04-06'));
         expect(await cursor(), containsPair('cursor_version', 47));
         expect(await cursor(), containsPair('done', false));
-        LocalDb.debugAfterReencodePrepare = null;
-        expect(await LocalDb.reencodeLegacyDayResults(limit: 3), 1);
+        SeriesReencodeStore.debugAfterPrepare = null;
+        expect(await SeriesReencodeStore.run(limit: 3), 1);
         final converted = await row('2021-04-05');
         expect(
           SeriesCodec.needsReencode(converted['payload_json'] as String),
@@ -113,7 +110,7 @@ void main() {
           {...original}..remove('payload_json'),
         );
         expect(await cursor(), containsPair('done', true));
-        expect(await LocalDb.reencodeLegacyDayResults(limit: 3), 0);
+        expect(await SeriesReencodeStore.run(limit: 3), 0);
       },
     );
   }

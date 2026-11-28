@@ -50,7 +50,7 @@ void main() {
   test(
     'fresh v22 schema passes schemaHealth (workout_route present)',
     () async {
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], true, reason: '$health');
       expect(health['missing_tables'], isEmpty);
     },
@@ -58,7 +58,7 @@ void main() {
 
   test('append + read route points round-trips in seq order', () async {
     const id = 'w-route-1';
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': 1000,
       'end_ts': 1100,
@@ -68,7 +68,7 @@ void main() {
       'created_at': 1000000,
     });
 
-    expect(await LocalDb.sessionHasRoute(id), false);
+    expect(await WorkoutRouteStore.hasRoute(id), false);
 
     final b1 = [
       const RoutePoint(seq: 0, tsMs: 1000000, lat: 1.0, lng: 2.0, accuracy: 5),
@@ -77,12 +77,12 @@ void main() {
     final b2 = [
       const RoutePoint(seq: 2, tsMs: 1002000, lat: 1.2, lng: 2.2, alt: 30),
     ];
-    await LocalDb.appendRoutePoints(id, [for (final p in b1) p.toRow(id)]);
-    await LocalDb.appendRoutePoints(id, [for (final p in b2) p.toRow(id)]);
+    await WorkoutRouteStore.appendPoints(id, [for (final p in b1) p.toRow(id)]);
+    await WorkoutRouteStore.appendPoints(id, [for (final p in b2) p.toRow(id)]);
 
-    expect(await LocalDb.sessionHasRoute(id), true);
+    expect(await WorkoutRouteStore.hasRoute(id), true);
 
-    final rows = await LocalDb.routePoints(id);
+    final rows = await WorkoutRouteStore.points(id);
     expect(rows.length, 3);
     final pts = [for (final r in rows) RoutePoint.fromRow(r)];
     expect(pts.map((e) => e.seq).toList(), [0, 1, 2]);
@@ -101,7 +101,7 @@ void main() {
     await LocalDb.insertRecord(_raw(2002, 202), _sample(2002, 202, 130));
     await LocalDb.insertRecord(_raw(9999, 203), _sample(9999, 203, 140)); // out
 
-    final rows = await LocalDb.hrSamplesInRange(1999, 2003);
+    final rows = await SessionStore.hrSamplesInRange(1999, 2003);
     expect(rows.length, 2); // hr 0 filtered, 9999 out of window
     final hrs = [for (final r in rows) (r['hr'] as num).toInt()];
     expect(hrs, [120, 130]); // ascending by rec_ts
@@ -109,9 +109,9 @@ void main() {
 
   test('deleteSession cascades to route rows', () async {
     const id = 'w-route-1';
-    expect(await LocalDb.sessionHasRoute(id), true);
-    await LocalDb.deleteSession(id);
-    expect(await LocalDb.sessionHasRoute(id), false);
-    expect(await LocalDb.routePoints(id), isEmpty);
+    expect(await WorkoutRouteStore.hasRoute(id), true);
+    await SessionStore.delete(id);
+    expect(await WorkoutRouteStore.hasRoute(id), false);
+    expect(await WorkoutRouteStore.points(id), isEmpty);
   });
 }

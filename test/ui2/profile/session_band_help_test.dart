@@ -54,7 +54,7 @@ void main() {
           addTearDown(app.dispose);
           addTearDown(units.dispose);
           await t.runAsync(() async {
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': 'authored-no-pulse',
               'type': 'other',
               'status': 'done',
@@ -67,7 +67,7 @@ void main() {
               'source': 'manual',
               'created_at': 1,
             });
-            await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+            await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
           });
           expect(t.takeException(), isNull);
           await localizedPage(

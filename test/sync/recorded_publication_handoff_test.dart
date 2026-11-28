@@ -91,7 +91,7 @@ void main() {
             app.engine.onDataStored!();
             for (var n = 0; n < 100; n++) {
               if (app.lastRecordAt?.millisecondsSinceEpoch == (ts + i) * 1000 &&
-                  (await LocalDb.computeJobs()).isNotEmpty) {
+                  (await ComputeJobStore.jobs()).isNotEmpty) {
                 break;
               }
               await Future<void>.delayed(const Duration(milliseconds: 2));
@@ -118,14 +118,14 @@ void main() {
             for (var i = 0; i < 4; i++) ts + i,
           ]);
           expect(rows.map((r) => r['hr']), [70, 71, 72, 73]);
-          final jobs = await LocalDb.computeJobs();
+          final jobs = await ComputeJobStore.jobs();
           expect(jobs, hasLength(1));
           expect(jobs.single['state'], 'queued');
           expect(app.deriving, false);
           expect(await db.query('day_result'), isEmpty);
           app.dispose();
           disposed = true;
-          expect(await LocalDb.computeJobs(), jobs);
+          expect(await ComputeJobStore.jobs(), jobs);
           expect(await db.query('decoded_onehz', orderBy: 'rec_ts'), rows);
         } finally {
           if (!disposed) app.dispose();

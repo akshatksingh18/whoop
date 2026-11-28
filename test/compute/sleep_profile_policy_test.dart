@@ -175,7 +175,7 @@ void main() {
 
   group('concurrent-fold semantics (DB transaction contract)', () {
     // The real serialization is an exclusive SQLite transaction in
-    // LocalDb.updateBaseline — a Dart lock cannot span isolates. What is
+    // MetricSeriesStore.updateBaseline — a Dart lock cannot span isolates. What is
     // testable here without a DB is the PURE contract the transaction body
     // relies on: given the payload as it exists at commit time, decide once.
     //

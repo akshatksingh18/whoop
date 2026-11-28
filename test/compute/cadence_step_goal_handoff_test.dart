@@ -54,7 +54,7 @@ void main() {
       }),
     );
     final start = localDayStartSec(day)!;
-    await LocalDb.replacePhoneCoverageForDay(day, [
+    await StepCoverageStore.replacePhoneForDay(day, [
       (startTs: start, endTs: start + 3600, steps: steps),
     ]);
   }
@@ -71,16 +71,16 @@ void main() {
         final ledger = await StepGoals.read();
         expect(ledger['targets'], {day: 1000});
         expect(ledger['earned'], steps >= 1000 ? {day: 1000} : isEmpty);
-        final committed = await LocalDb.baseline(
+        final committed = await MetricSeriesStore.baseline(
           'calculation:${StepGoals.key}',
         );
         await app.runCadenceChecks();
         expect(
-          await LocalDb.baseline('calculation:${StepGoals.key}'),
+          await MetricSeriesStore.baseline('calculation:${StepGoals.key}'),
           committed,
         );
         expect(await db.query('live_coverage'), raw);
-        expect((await LocalDb.resolvedStepsForDay(day)).total, steps);
+        expect((await StepCoverageStore.resolvedStepsForDay(day)).total, steps);
         expect(StepGoals.busy, false);
       },
     );
@@ -91,7 +91,9 @@ void main() {
     () async {
       await seed(1500);
       final db = await LocalDb.instance;
-      final before = await LocalDb.baseline('calculation:${StepGoals.key}');
+      final before = await MetricSeriesStore.baseline(
+        'calculation:${StepGoals.key}',
+      );
       final prefs = await SharedPreferences.getInstance();
       final cached = prefs.getString(StepGoals.key);
       await db.execute(
@@ -101,7 +103,10 @@ void main() {
       );
       try {
         await app.runCadenceChecks();
-        expect(await LocalDb.baseline('calculation:${StepGoals.key}'), before);
+        expect(
+          await MetricSeriesStore.baseline('calculation:${StepGoals.key}'),
+          before,
+        );
         expect(prefs.getString(StepGoals.key), cached);
         expect(StepGoals.busy, false);
       } finally {
@@ -109,7 +114,7 @@ void main() {
       }
       await app.runCadenceChecks();
       expect((await StepGoals.read())['earned'], {day: 1000});
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 1500);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 1500);
       expect(StepGoals.busy, false);
     },
   );
@@ -119,14 +124,19 @@ void main() {
     () async {
       await seed(1500, earned: true);
       final db = await LocalDb.instance;
-      final before = await LocalDb.baseline('calculation:${StepGoals.key}');
+      final before = await MetricSeriesStore.baseline(
+        'calculation:${StepGoals.key}',
+      );
       final raw = await db.query('live_coverage');
       await db.execute(
         'ALTER TABLE live_coverage RENAME TO authored_coverage_retained',
       );
       try {
         await app.runCadenceChecks();
-        expect(await LocalDb.baseline('calculation:${StepGoals.key}'), before);
+        expect(
+          await MetricSeriesStore.baseline('calculation:${StepGoals.key}'),
+          before,
+        );
         expect(await db.query('authored_coverage_retained'), raw);
         expect(StepGoals.busy, false);
       } finally {
@@ -135,10 +145,13 @@ void main() {
         );
       }
       await app.runCadenceChecks();
-      expect(await LocalDb.baseline('calculation:${StepGoals.key}'), before);
+      expect(
+        await MetricSeriesStore.baseline('calculation:${StepGoals.key}'),
+        before,
+      );
       expect(await db.query('live_coverage'), raw);
       expect((await StepGoals.read())['earned'], {day: 1000});
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 1500);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 1500);
       expect(StepGoals.busy, false);
     },
   );

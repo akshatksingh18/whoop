@@ -39,7 +39,7 @@ void main() {
             ),
           );
           await NutritionDb.setDayMark(db, day, 'complete');
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': 'authored-session',
             'type': 'yoga',
             'start_ts': 1617724800,

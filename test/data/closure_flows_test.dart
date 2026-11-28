@@ -154,14 +154,14 @@ void main() {
   });
   test('closure N01: real retime preserves private and effort', () async {
     await seed('retime-private', private: 1);
-    final row = (await LocalDb.session('retime-private'))!;
+    final row = (await SessionStore.byId('retime-private'))!;
     final repo = LocalRepositoryImpl(getProfileMap: () => {'weight_kg': 70.0});
     await repo.setWorkoutWindow(
       'retime-private',
       startTs: (row['start_ts'] as num).toInt() + 60,
       endTs: (row['end_ts'] as num).toInt(),
     );
-    final after = (await LocalDb.session('retime-private'))!;
+    final after = (await SessionStore.byId('retime-private'))!;
     expect(after['private'], 1);
     expect(after['rpe'], 8);
   });
@@ -322,11 +322,11 @@ void main() {
           activityHost(app).onFinish!(draft),
           throwsA(anything),
         );
-        final row = (await LocalDb.session('partial-private'))!;
+        final row = (await SessionStore.byId('partial-private'))!;
         expect(row['status'], 'live');
         expect(row['private'], 0);
         expect(app.activeWorkout, isNotNull);
-        expect(await LocalDb.sessionDetail('partial-private'), isNull);
+        expect(await SessionStore.detail('partial-private'), isNull);
         expect(LiveDraft.current, isNotNull);
       } finally {
         await db.execute('DROP TRIGGER audit_private_fail');
@@ -525,7 +525,7 @@ void main() {
     addTearDown(app.dispose);
     try {
       final out = await runImport(app, [path]);
-      expect(await LocalDb.session('restored-only-session'), isNotNull);
+      expect(await SessionStore.byId('restored-only-session'), isNotNull);
       expect(out.nothingLanded, isFalse);
       expect(out.records, greaterThan(0));
     } finally {
@@ -576,7 +576,7 @@ void main() {
   test(
     'regression: initial session privacy is part of its first durable row',
     () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'private-start-race',
         'start_ts': 1000000000,
         'type': 'swimming',
@@ -584,14 +584,14 @@ void main() {
         'private': 1,
         'created_at': 1,
       });
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'private-start-race',
         'start_ts': 1000000000,
         'type': 'swimming',
         'status': 'done',
         'created_at': 1,
       });
-      expect((await LocalDb.session('private-start-race'))!['private'], 1);
+      expect((await SessionStore.byId('private-start-race'))!['private'], 1);
     },
   );
   test(
@@ -607,10 +607,10 @@ void main() {
       final id = WorkoutClock.current!.id;
       // This is the same non-lift order as ActivitySetup._start after onStart.
       WorkoutClock.current!.save();
-      await LocalDb.setSessionPrivate(id, true);
+      await SessionStore.setPrivate(id, true);
       LiveDraft.begin(a, private: true);
       await Future<void>.delayed(const Duration(milliseconds: 120));
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       expect(row, isNotNull);
       expect(row!['private'], 1);
       expect(LiveDraft.current!.private, isTrue);

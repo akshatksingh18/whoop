@@ -156,7 +156,7 @@ void main() {
           ),
           hasLength(1),
         );
-        expect(await LocalDb.getCursor('strap_trim'), isNull);
+        expect(await CursorStore.read('strap_trim'), isNull);
         expect(await (await LocalDb.instance).query('decoded_onehz'), isEmpty);
       },
     );

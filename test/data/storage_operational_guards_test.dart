@@ -15,9 +15,9 @@ void main() {
   test(
     'secondary offload refuses before changing primary cursors or data',
     () async {
-      await LocalDb.setCursor('strap_trim', 'synthetic-primary-token');
+      await CursorStore.write('strap_trim', 'synthetic-primary-token');
       await expectLater(
-        LocalDb.commitSyncBatch(
+        SyncLedgerStore.commitBatch(
           [],
           [],
           deviceId: 'synthetic-secondary',
@@ -31,7 +31,7 @@ void main() {
           ),
         ),
       );
-      expect(await LocalDb.getCursor('strap_trim'), 'synthetic-primary-token');
+      expect(await CursorStore.read('strap_trim'), 'synthetic-primary-token');
       expect(await (await LocalDb.instance).query('decoded_onehz'), isEmpty);
     },
   );
@@ -58,7 +58,7 @@ void main() {
       );
       try {
         await expectLater(
-          LocalDb.commitSyncBatch(
+          SyncLedgerStore.commitBatch(
             [raw],
             [row],
             trimToken: 'synthetic-token',
@@ -67,19 +67,19 @@ void main() {
           throwsA(anything),
         );
         expect(await db.query('decoded_onehz'), isEmpty);
-        expect(await LocalDb.getCursor('strap_trim'), isNull);
-        expect(await LocalDb.getCursor('counter_hw'), isNull);
+        expect(await CursorStore.read('strap_trim'), isNull);
+        expect(await CursorStore.read('counter_hw'), isNull);
       } finally {
         await db.execute('DROP TRIGGER synthetic_extra_refusal');
       }
-      await LocalDb.commitSyncBatch(
+      await SyncLedgerStore.commitBatch(
         [raw],
         [row],
         trimToken: 'synthetic-token',
         extraCursors: {'synthetic_extra': 'kept'},
       );
-      expect(await LocalDb.getCursor('synthetic_extra'), 'kept');
-      expect(await LocalDb.getCursor('strap_trim'), 'synthetic-token');
+      expect(await CursorStore.read('synthetic_extra'), 'kept');
+      expect(await CursorStore.read('strap_trim'), 'synthetic-token');
       expect(await db.query('decoded_onehz'), hasLength(1));
       expect(await LocalDb.recordedSecondsBetween(1760000000, 1760000001), 1);
       expect(
@@ -91,32 +91,35 @@ void main() {
   test(
     'heavy jobs supersede queued light work while failed jobs remain diagnostic',
     () async {
-      await LocalDb.enqueueDeriveJob(
+      await ComputeJobStore.enqueueDerive(
         type: 'derive_light',
         reason: 'synthetic-light',
       );
-      await LocalDb.enqueueDeriveJob(
+      await ComputeJobStore.enqueueDerive(
         type: 'derive_heavy',
         reason: 'synthetic-heavy',
       );
-      await LocalDb.enqueueDeriveJob(type: 'derive_heavy', reason: 'duplicate');
+      await ComputeJobStore.enqueueDerive(
+        type: 'derive_heavy',
+        reason: 'duplicate',
+      );
       final db = await LocalDb.instance;
       expect(await db.query('compute_jobs'), hasLength(1));
-      final claimed = (await LocalDb.takeNextComputeJob())!;
+      final claimed = (await ComputeJobStore.takeNext())!;
       expect(claimed['type'], 'derive_heavy');
-      await LocalDb.failComputeJob(
+      await ComputeJobStore.fail(
         claimed['id'] as String,
         'synthetic worker refusal',
       );
       final failed = (await db.query('compute_jobs')).single;
       expect(failed['state'], 'failed');
       expect(failed['reason'], 'synthetic worker refusal');
-      expect(await LocalDb.takeNextComputeJob(), isNull);
-      await LocalDb.enqueueDeriveJob(
+      expect(await ComputeJobStore.takeNext(), isNull);
+      await ComputeJobStore.enqueueDerive(
         type: 'derive_light',
         reason: 'retry inputs',
       );
-      expect((await LocalDb.takeNextComputeJob())!['type'], 'derive_light');
+      expect((await ComputeJobStore.takeNext())!['type'], 'derive_light');
       expect(
         await db.query('compute_jobs', where: 'state=?', whereArgs: ['failed']),
         hasLength(1),
@@ -137,7 +140,7 @@ void main() {
         {'activity_computed_at': 300, 'overnight_computed_at': 200},
         {'overnight_computed_at': 400},
       ]) {
-        await LocalDb.putComputeFreshness('today', jsonEncode(values));
+        await ComputeFreshnessStore.put('today', jsonEncode(values));
         final health = await LocalDb.syncHealth();
         expect(
           health.calculatedAt,
@@ -148,7 +151,7 @@ void main() {
         expect(health.transferAt, isNotNull);
         expect(health.transferStatus, 'partial');
       }
-      await LocalDb.putComputeFreshness('today', 'broken');
+      await ComputeFreshnessStore.put('today', 'broken');
       expect((await LocalDb.syncHealth()).calculatedAt, isNull);
     },
   );
@@ -184,14 +187,20 @@ void main() {
     'vacuum threshold leaves live rows readable and empty export is refused',
     () async {
       final db = await LocalDb.instance;
-      await LocalDb.setCursor('synthetic_saved', 'kept');
-      expect(await LocalDb.freelistBytes(), greaterThanOrEqualTo(0));
-      expect(await LocalDb.vacuumIfBloated(minFreeBytes: 1 << 30), 0);
+      await CursorStore.write('synthetic_saved', 'kept');
       expect(
-        await LocalDb.vacuumIfBloated(minFreeBytes: 0),
+        await StorageRetentionStore.freelistBytes(),
         greaterThanOrEqualTo(0),
       );
-      expect(await LocalDb.getCursor('synthetic_saved'), 'kept');
+      expect(
+        await StorageRetentionStore.vacuumIfBloated(minFreeBytes: 1 << 30),
+        0,
+      );
+      expect(
+        await StorageRetentionStore.vacuumIfBloated(minFreeBytes: 0),
+        greaterThanOrEqualTo(0),
+      );
+      expect(await CursorStore.read('synthetic_saved'), 'kept');
       expect(
         (await db.rawQuery('PRAGMA integrity_check')).single.values.single,
         'ok',

@@ -32,7 +32,7 @@ void main() {
           ..repo = LocalRepositoryImpl(getProfileMap: () => {});
         addTearDown(app.dispose);
         final db = await LocalDb.instance;
-        await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+        await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
         final before = await db.query('metric_series');
         await localizedPage(
           t,

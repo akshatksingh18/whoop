@@ -39,7 +39,7 @@ void main() {
       final clock = WorkoutClock.current!;
       final active = app.activeWorkout;
       final db = await LocalDb.instance;
-      final row = await LocalDb.session(id);
+      final row = await SessionStore.byId(id);
       final routes = await db.query('workout_route');
       var restored = false;
       await db.execute(
@@ -60,7 +60,7 @@ void main() {
         await until(() => failures() == 1);
         expect(app.activeWorkout, same(active));
         expect(clock.end, isNull);
-        expect(await LocalDb.session(id), row);
+        expect(await SessionStore.byId(id), row);
         expect(await db.query('authored_route_retained'), routes);
         app.debugTickWorkout();
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -78,13 +78,13 @@ void main() {
         await until(() => app.insightsRevision.value > revision);
         expect(app.activeWorkout, same(active));
         expect(clock.pausedAt, isNotNull);
-        expect((await LocalDb.session(id))!['status'], 'live');
+        expect((await SessionStore.byId(id))!['status'], 'live');
         expect(failures(), 1);
         clock.setPaused(false);
         await WorkoutClock.flushWrites();
         await app.stopWorkout();
         expect(app.activeWorkout, isNull);
-        final saved = (await LocalDb.session(id))!;
+        final saved = (await SessionStore.byId(id))!;
         expect(saved['status'], 'done');
         expect(saved['steps'], isNull);
         expect(saved['type'], 'general_workout');

@@ -209,7 +209,7 @@ class ReadinessData {
     })
   >
   _breakdownFor(String? day, Metric readiness) async {
-    final pin = await LocalDb.frozenHeadline();
+    final pin = await FrozenHeadlineStore.read();
     if (day == null ||
         readiness.value == null ||
         pin == null ||
@@ -221,7 +221,7 @@ class ReadinessData {
         original: null,
       );
     }
-    final original = await LocalDb.frozenHeadlineExplanation(day, pin.value);
+    final original = await FrozenHeadlineStore.explanation(day, pin.value);
     if (original == null) {
       return (
         rows: const <Map<String, dynamic>>[],
@@ -245,7 +245,7 @@ class ReadinessData {
   }
 
   static Future<List<DatedValue>> _series(String key) async => [
-    for (final r in await LocalDb.metricSeries(key, measuredOnly: true))
+    for (final r in await MetricSeriesStore.series(key, measuredOnly: true))
       if (r['date'] is String && r['value'] is num)
         (date: r['date'] as String, value: (r['value'] as num).toDouble()),
   ];

@@ -47,7 +47,7 @@ void main() {
   });
 
   Future<void> seed({String type = 'yoga', int? end, bool unknown = false}) =>
-      LocalDb.putSession({
+      SessionStore.put({
         'id': 'authored-history',
         'type': type,
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -87,7 +87,7 @@ void main() {
         t,
       ) async {
         await seed(type: type, end: end);
-        final before = await LocalDb.session('authored-history');
+        final before = await SessionStore.byId('authored-history');
         await open(t);
         expect((await readPage(t)).join(' '), contains('12 min'));
         await expand(t);
@@ -95,7 +95,7 @@ void main() {
         expect(words, contains('12:00'));
         expect(words, isNot(contains('NaN')));
         expect(
-          await t.runAsync(() => LocalDb.session('authored-history')),
+          await t.runAsync(() => SessionStore.byId('authored-history')),
           before,
         );
       });
@@ -108,7 +108,7 @@ void main() {
         (t) async {
           final end = start.add(const Duration(minutes: 12));
           await seed(end: end.millisecondsSinceEpoch ~/ 1000, unknown: unknown);
-          final before = await LocalDb.session('authored-history');
+          final before = await SessionStore.byId('authored-history');
           await open(t, scale: scale);
           await expand(t);
           final fix = action('Fix the times on this session');
@@ -124,7 +124,7 @@ void main() {
           await io(t);
           expect(find.byType(WorkoutHistoryScreen), findsOneWidget);
           expect(
-            await t.runAsync(() => LocalDb.session('authored-history')),
+            await t.runAsync(() => SessionStore.byId('authored-history')),
             before,
           );
         },
@@ -141,7 +141,7 @@ void main() {
                 start.add(const Duration(minutes: 12)).millisecondsSinceEpoch ~/
                 1000,
           );
-          final before = await LocalDb.session('authored-history');
+          final before = await SessionStore.byId('authored-history');
           await open(t);
           final row = find.byType(Dismissible).first;
           await reveal(t, row);
@@ -158,7 +158,7 @@ void main() {
           await t.tap(find.text(outcome == 'keep' ? 'Keep it' : 'Remove').last);
           await io(t);
           final after = await t.runAsync(
-            () => LocalDb.session('authored-history'),
+            () => SessionStore.byId('authored-history'),
           );
           expect(after, outcome == 'remove' ? isNull : before);
           expect(
@@ -186,7 +186,7 @@ void main() {
                 start.add(const Duration(minutes: 12)).millisecondsSinceEpoch ~/
                 1000,
           );
-          final before = await LocalDb.session('authored-history');
+          final before = await SessionStore.byId('authored-history');
           await open(t, scale: scale);
           Future<void> picker() async {
             await t.tap(find.byTooltip('Select Dates'));
@@ -227,7 +227,7 @@ void main() {
           await io(t);
           expect(action('Open Yoga session'), findsOneWidget);
           expect(
-            await t.runAsync(() => LocalDb.session('authored-history')),
+            await t.runAsync(() => SessionStore.byId('authored-history')),
             before,
           );
         },

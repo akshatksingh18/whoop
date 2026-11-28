@@ -54,7 +54,8 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [x] Re-prove 100% after the 3r removals: main `b7b55f8e` executes 48,380/48,380 (run
   46076034921, every job green).
 - [ ] Re-prove 100% on the next publication: main `e04a7c13` executed 48,378/48,380, missing
-  only the clock-dependent `day_steps.dart` 471–472 that a tomorrow-dated test now covers.
+  only the clock-dependent `day_steps.dart` 471–472 that a tomorrow-dated test now covers;
+  main `c775d428` failed one Saturday-only test, now fixed (`coverage-audit.md`).
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.
@@ -81,7 +82,17 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
     journal, coverage and day zones, notifications, import/export/backup), with callers moved
     by script and the analyzer. A store that needs `LocalDb`'s private guarded write is a
     `part` of `db.dart`. Done: notifications (`NotifFiredStore`), nap edits (`SleepNapStore`), journal
-    (`JournalStore`) and sleep-window overrides and corrections (`SleepOverrideStore`), each in
+    (`JournalStore`), sleep-window overrides and corrections (`SleepOverrideStore`), GPS routes
+    and kilometre splits (`WorkoutRouteStore`), workout sessions and suggestions
+    (`SessionStore`, `WorkoutSuggestionStore`), step coverage with wrist-off and charging
+    spans (`StepCoverageStore`), the atomic sync-batch commit (`SyncLedgerStore`), the
+    Diagnostics screen's raw-record stats and schema health (`DiagnosticsStore`), the durable
+    derive queue (`ComputeJobStore`), the metric series with its baselines
+    (`MetricSeriesStore`), the freshness ledger (`ComputeFreshnessStore`), the legacy
+    `day_result` re-encode walk (`SeriesReencodeStore`), the sleep-session candidates with
+    wake-day features (`SleepIntermediateStore`), retention with space reclamation
+    (`StorageRetentionStore`), the frozen morning headline (`FrozenHeadlineStore`) and the
+    sync-cursor key/value store (`CursorStore`), each in
     `lib/data/<name>_store.dart`; the rest move one concern per commit.
   - `AppState` and `BleEngine` (instance classes, 17 and 21 statics): concern mixins in `part`
     files (`AppState extends ChangeNotifier with _SyncOps, _FoodOps, ...`), with no caller
@@ -120,7 +131,7 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [ ] Keep physical every-click/BLE/notification/sensor limits explicit.100% instrumented Dart
   execution does not close the inherited phone matrix below.
 
-## Food default meal â€” first investigation after B
+## Food default meal — first investigation after B
 
 - [ ] Read-only trace every Log food entry point and existing local meal-time rules. A general
   action should choose a sensible meal for the current local time. Lunch sometimes opens Snacks;

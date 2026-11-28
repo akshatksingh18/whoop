@@ -55,8 +55,12 @@ void main() {
               ),
             );
           }
-          await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
-          await LocalDb.putSession({
+          await SyncLedgerStore.commitBatch(
+            raws,
+            samples,
+            deviceFamily: 'gen4',
+          );
+          await SessionStore.put({
             'id': id,
             'start_ts': ts,
             'end_ts': ts + 240,
@@ -67,7 +71,7 @@ void main() {
             'trace_samples': 0,
             'created_at': 1,
           });
-          await LocalDb.appendRoutePoints(id, [
+          await WorkoutRouteStore.appendPoints(id, [
             for (var i = 0; i <= 240; i++)
               RoutePoint(
                 seq: i,
@@ -80,8 +84,8 @@ void main() {
               ).toRow(id),
           ]);
           final frames = await db.query('decoded_onehz');
-          final route = await LocalDb.routePoints(id);
-          await LocalDb.putWorkoutSplits(id, [
+          final route = await WorkoutRouteStore.points(id);
+          await WorkoutRouteStore.putSplits(id, [
             {
               'km': 1,
               'meters': 800.0,
@@ -126,7 +130,7 @@ void main() {
             altitude ? greaterThan(0) : isNull,
           );
           expect(await db.query('decoded_onehz'), frames);
-          expect(await LocalDb.routePoints(id), route);
+          expect(await WorkoutRouteStore.points(id), route);
           expect(await db.query('day_result'), isEmpty);
         },
       );

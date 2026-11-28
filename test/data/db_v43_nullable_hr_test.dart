@@ -76,7 +76,7 @@ void main() {
     )).firstWhere((c) => c['name'] == 'hr');
     expect(hrCol['notnull'], 0, reason: 'a record with no HR must be storable');
 
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [_raw(1000, 1), _raw(1001, 2)],
       [_withHr(1000, 1, 62), _accelOnly(1001, 2)],
     );
@@ -103,7 +103,7 @@ void main() {
 
   test('no reader inherits the off-skin sentinel from a NULL hr', () async {
     await _useFreshDb('v43_hr_readers_test.db');
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [_raw(2000, 1), _raw(2001, 2), _raw(2002, 3)],
       [_withHr(2000, 1, 60), _accelOnly(2001, 2), _withHr(2002, 3, 80)],
     );
@@ -120,7 +120,7 @@ void main() {
     // 2. Every SQL read is gated `hr > 0`, which NULL fails — so the
     //    heart-rate readers simply do not see the second, rather than
     //    averaging a zero into it.
-    final hrRows = await LocalDb.hrSamplesInRange(2000, 2002);
+    final hrRows = await SessionStore.hrSamplesInRange(2000, 2002);
     expect(hrRows.map((r) => r['hr']), [60, 80]);
 
     // 3. The derive page carries the row WITH its accel and a null hr, so the
@@ -141,7 +141,7 @@ void main() {
       await _useFreshDb('v43_splits_test.db');
       expect(await _columns('workout_split'), contains('net_elev_m'));
 
-      await LocalDb.putWorkoutSplits('s1', [
+      await WorkoutRouteStore.putSplits('s1', [
         {
           'km': 1,
           'meters': 1000.0,
@@ -168,7 +168,7 @@ void main() {
 
       // Re-writing replaces rather than duplicating, and deleting the session
       // takes its splits with it.
-      await LocalDb.putWorkoutSplits('s1', [
+      await WorkoutRouteStore.putSplits('s1', [
         {
           'km': 1,
           'meters': 1000.0,
@@ -178,7 +178,7 @@ void main() {
         },
       ]);
       expect((await splitRows('s1')).length, 1);
-      await LocalDb.deleteSession('s1');
+      await SessionStore.delete('s1');
       expect(await splitRows('s1'), isEmpty);
     },
   );

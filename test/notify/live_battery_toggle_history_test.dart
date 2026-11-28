@@ -40,8 +40,8 @@ void main() {
           final raw = await db.query('events', orderBy: 'ts');
           final mirror = await db.query('band_events', orderBy: 'ts');
           Future<List<List<int>>> read(int a, int b) => charging
-              ? LocalDb.chargingSpans(a, b)
-              : LocalDb.wristOffSpans(a, b);
+              ? StepCoverageStore.chargingSpans(a, b)
+              : StepCoverageStore.wristOffSpans(a, b);
           expect(
             await read(lo, hi),
             shape == 'zero-edge'

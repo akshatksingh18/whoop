@@ -79,7 +79,7 @@ void main() {
         expect(rows.single['battery_pct'], 73.0);
         expect(rows.single['source'], 'device_state');
         expect(await db.query('day_result'), isEmpty);
-        await LocalDb.setCursor('authored-evidence', 'keep');
+        await CursorStore.write('authored-evidence', 'keep');
         store.failure = null;
         SharedPreferences.resetStatic();
         await Prefs.ensureLoaded();
@@ -109,7 +109,7 @@ void main() {
         expect(after.first, rows.single);
         expect(after.last['battery_pct'], 72.0);
         expect(store.values['flutter.authored-unrelated'], 'keep');
-        expect(await LocalDb.getCursor('authored-evidence'), 'keep');
+        expect(await CursorStore.read('authored-evidence'), 'keep');
         expect(
           presented,
           0,

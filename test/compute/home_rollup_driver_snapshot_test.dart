@@ -44,17 +44,23 @@ void main() {
       };
       final repo = LocalRepositoryImpl(getProfileMap: () => {});
       final snapshot = jsonEncode(current);
-      await LocalDb.putBaseline('crossday', snapshot);
+      await MetricSeriesStore.putBaseline('crossday', snapshot);
       final fresh = await HomeData.load(repo);
       expect(fresh.drivers, drivers);
-      expect((await LocalDb.baseline('crossday'))!['payload_json'], snapshot);
+      expect(
+        (await MetricSeriesStore.baseline('crossday'))!['payload_json'],
+        snapshot,
+      );
 
       final stale = jsonEncode({...current, 'built_for_day': date(40)});
-      await LocalDb.putBaseline('crossday', stale);
+      await MetricSeriesStore.putBaseline('crossday', stale);
       final outdated = await HomeData.load(repo, null, fresh);
       expect(outdated.insightsStale?['kind'], 'stale');
       expect(outdated.drivers, isEmpty);
-      expect((await LocalDb.baseline('crossday'))!['payload_json'], stale);
+      expect(
+        (await MetricSeriesStore.baseline('crossday'))!['payload_json'],
+        stale,
+      );
     },
   );
 }

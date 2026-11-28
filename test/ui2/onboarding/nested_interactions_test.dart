@@ -112,7 +112,7 @@ void main() {
               .millisecondsSinceEpoch ~/
           1000;
       await t.runAsync(
-        () => LocalDb.putSession({
+        () => SessionStore.put({
           'id': 'synthetic-unknown',
           'start_ts': at,
           'end_ts': at + 600,
@@ -146,7 +146,7 @@ void main() {
               .millisecondsSinceEpoch ~/
           1000;
       await t.runAsync(
-        () => LocalDb.putSession({
+        () => SessionStore.put({
           'id': 'synthetic-orphan',
           'start_ts': at,
           'end_ts': at + 8 * 3600,
@@ -187,7 +187,7 @@ void main() {
       );
       expect(
         (await t.runAsync(
-          () => LocalDb.session('synthetic-orphan'),
+          () => SessionStore.byId('synthetic-orphan'),
         ))!['end_ts_fabricated'],
         0,
       );

@@ -38,7 +38,7 @@ void main() {
         'device_family': 'gen4',
       });
     }
-    await LocalDb.putBaseline(
+    await MetricSeriesStore.putBaseline(
       'tz_travel_guard',
       jsonEncode({'offset_min': DateTime.now().timeZoneOffset.inMinutes + 180}),
     );
@@ -60,7 +60,7 @@ void main() {
           final prior = await db.query('day_result');
           final raw = await db.query('decoded_onehz');
           final metrics = await db.query('metric_series');
-          final guard = await LocalDb.baseline('tz_travel_guard');
+          final guard = await MetricSeriesStore.baseline('tz_travel_guard');
           final logs = <String>[];
           final engine = DerivationEngine(background: true, log: logs.add);
           for (var pass = 0; pass < 2; pass++) {
@@ -72,7 +72,7 @@ void main() {
             expect(await db.query('day_result'), prior);
             expect(await db.query('metric_series'), metrics);
             expect(await db.query('decoded_onehz'), raw);
-            expect(await LocalDb.baseline('tz_travel_guard'), guard);
+            expect(await MetricSeriesStore.baseline('tz_travel_guard'), guard);
           }
           expect(
             logs.where((l) => l.contains('possible timezone change')),
@@ -94,7 +94,7 @@ void main() {
         const held = '2021-04-07', independent = '2021-04-10';
         await seed([held, independent]);
         final prior = await LocalDb.dayResult(savedDay);
-        final guard = await LocalDb.baseline('tz_travel_guard');
+        final guard = await MetricSeriesStore.baseline('tz_travel_guard');
         final completed = <String>[];
         final engine = DerivationEngine(background: true);
         expect(
@@ -109,7 +109,7 @@ void main() {
         expect(await LocalDb.dayResult(held), isNull);
         expect(await LocalDb.dayResult(independent), isNotNull);
         expect(await LocalDb.dayResult(savedDay), prior);
-        expect(await LocalDb.baseline('tz_travel_guard'), guard);
+        expect(await MetricSeriesStore.baseline('tz_travel_guard'), guard);
         expect(engine.running, false);
       },
       timeout: const Timeout(Duration(minutes: 1)),

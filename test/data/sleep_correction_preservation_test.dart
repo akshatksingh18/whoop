@@ -49,11 +49,7 @@ Future<void> seed() async {
     offsetTs: 9000,
     source: 'manual',
   );
-  await LocalDb.setFrozenHeadline(
-    day,
-    72,
-    explanation: {'original': 'authored'},
-  );
+  await FrozenHeadlineStore.put(day, 72, explanation: {'original': 'authored'});
 }
 
 Future<void> accept(String action) => SleepOverrideStore.acceptCorrection(
@@ -96,7 +92,7 @@ void main() {
         await seed();
         final db = await LocalDb.instance;
         final before = await db.query('day_result');
-        final pin = await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor);
+        final pin = await CursorStore.read(FrozenHeadlineStore.kCursorKey);
         await accept(action);
         final row = (await LocalDb.dayResult(day))!;
         final b = SeriesCodec.decodePayloadJson(row['payload_json'])!;
@@ -109,9 +105,9 @@ void main() {
           (b['series'] as Map)['hr_curve'],
           night()['series']!['hr_curve'],
         );
-        expect(await LocalDb.metricSeries('rmssd'), isEmpty);
-        expect((await LocalDb.metricSeries('strain')).single['value'], 8);
-        expect(await LocalDb.frozenHeadline(), isNull);
+        expect(await MetricSeriesStore.series('rmssd'), isEmpty);
+        expect((await MetricSeriesStore.series('strain')).single['value'], 8);
+        expect(await FrozenHeadlineStore.read(), isNull);
         expect(await LocalDb.dayResultIds(kAlgoVersion), isNot(contains(day)));
         final intent = (await SleepOverrideStore.correction(day))!;
         final recovery = (intent['recovery'] as List).single as Map;
@@ -140,8 +136,8 @@ void main() {
           (await SleepOverrideStore.getOverride(day))?['source'],
           'manual',
         );
-        expect((await LocalDb.frozenHeadline())?.value, 72);
-        expect((await LocalDb.metricSeries('rmssd')).single['value'], 44);
+        expect((await FrozenHeadlineStore.read())?.value, 72);
+        expect((await MetricSeriesStore.series('rmssd')).single['value'], 44);
         expect(await SleepOverrideStore.correction(day), isNull);
       } finally {
         await db.execute('DROP TRIGGER refuse_sleep_intent');
@@ -164,7 +160,7 @@ void main() {
       expect((await LocalDb.dayResult(day))?['rmssd'], isNull);
       expect(await publish(2, revision: 2), true);
       expect((await LocalDb.dayResult(day))?['rmssd'], 44);
-      expect((await LocalDb.metricSeries('rmssd')).single['value'], 44);
+      expect((await MetricSeriesStore.series('rmssd')).single['value'], 44);
       expect((await SleepOverrideStore.correction(day))?['usable'], true);
     },
   );
@@ -209,19 +205,19 @@ void main() {
     () async {
       await seed();
       await accept('clear');
-      await LocalDb.putSleepSessionCandidate(
+      await SleepIntermediateStore.putCandidate(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: '{}',
       );
-      expect(await LocalDb.sleepSessionCandidate(day, kAlgoVersion), isNull);
-      await LocalDb.setFrozenHeadline(day, 99);
-      await LocalDb.setFrozenHeadline(day, 99, sleepIntentGeneration: 1);
-      expect(await LocalDb.frozenHeadline(), isNull);
-      expect(await LocalDb.putBaseline('crossday', '{}'), false);
-      expect(await LocalDb.baseline('crossday'), isNull);
+      expect(await SleepIntermediateStore.candidate(day, kAlgoVersion), isNull);
+      await FrozenHeadlineStore.put(day, 99);
+      await FrozenHeadlineStore.put(day, 99, sleepIntentGeneration: 1);
+      expect(await FrozenHeadlineStore.read(), isNull);
+      expect(await MetricSeriesStore.putBaseline('crossday', '{}'), false);
+      expect(await MetricSeriesStore.baseline('crossday'), isNull);
       expect(
-        await LocalDb.putBaseline(
+        await MetricSeriesStore.putBaseline(
           'crossday',
           '{"current":true}',
           sleepRevision: 1,
@@ -230,10 +226,14 @@ void main() {
       );
       await accept('rejected');
       expect(
-        await LocalDb.putBaseline('crossday', '{"old":true}', sleepRevision: 1),
+        await MetricSeriesStore.putBaseline(
+          'crossday',
+          '{"old":true}',
+          sleepRevision: 1,
+        ),
         false,
       );
-      expect(await LocalDb.baseline('crossday'), isNull);
+      expect(await MetricSeriesStore.baseline('crossday'), isNull);
     },
   );
 
@@ -254,7 +254,7 @@ void main() {
         false,
       );
       expect((await LocalDb.dayResult(day))?['partial'], 1);
-      expect(await LocalDb.metricSeries('rmssd'), isEmpty);
+      expect(await MetricSeriesStore.series('rmssd'), isEmpty);
     },
   );
 
@@ -276,14 +276,17 @@ void main() {
         ).getDaySleep(day))['has_sleep'],
         false,
       );
-      expect(await LocalDb.metricSeries('rmssd'), isEmpty);
+      expect(await MetricSeriesStore.series('rmssd'), isEmpty);
     },
   );
   test('obsolete staging cannot fold into the current sleep profile', () async {
     await seed();
-    await LocalDb.putBaseline('sleep_user_profile', '{"folded_days":[]}');
+    await MetricSeriesStore.putBaseline(
+      'sleep_user_profile',
+      '{"folded_days":[]}',
+    );
     expect(
-      await LocalDb.putSleepSessionCandidate(
+      await SleepIntermediateStore.putCandidate(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: '{"before":true}',
@@ -292,21 +295,23 @@ void main() {
     );
     await accept('clear');
     var called = false;
-    await LocalDb.updateBaseline('sleep_user_profile', (_) {
+    await MetricSeriesStore.updateBaseline('sleep_user_profile', (_) {
       called = true;
       return '{"obsolete":true}';
     }, sleepDayId: day);
     expect(called, false);
     expect(
       jsonDecode(
-        (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+        (await MetricSeriesStore.baseline(
+              'sleep_user_profile',
+            ))!['payload_json']
             as String,
       ),
       {'folded_days': []},
     );
     // The correction can arrive after the candidate commit but before the fold.
     expect(
-      await LocalDb.putSleepSessionCandidate(
+      await SleepIntermediateStore.putCandidate(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: '{"current":true}',
@@ -315,7 +320,7 @@ void main() {
       true,
     );
     await accept('rejected');
-    await LocalDb.updateBaseline(
+    await MetricSeriesStore.updateBaseline(
       'sleep_user_profile',
       (_) {
         called = true;
@@ -326,7 +331,7 @@ void main() {
     );
     expect(called, false);
     expect(
-      await LocalDb.putSleepSessionCandidate(
+      await SleepIntermediateStore.putCandidate(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: '{"obsolete":true}',
@@ -335,7 +340,10 @@ void main() {
       false,
     );
     expect(
-      (await LocalDb.sleepSessionCandidate(day, kAlgoVersion))!['payload_json'],
+      (await SleepIntermediateStore.candidate(
+        day,
+        kAlgoVersion,
+      ))!['payload_json'],
       '{"current":true}',
     );
   });
@@ -345,7 +353,7 @@ void main() {
     () async {
       await seed();
       await accept('clear');
-      await LocalDb.updateBaseline(
+      await MetricSeriesStore.updateBaseline(
         'sleep_user_profile',
         (_) => '{"accepted":true}',
         sleepDayId: day,
@@ -353,19 +361,23 @@ void main() {
       );
       expect(
         jsonDecode(
-          (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+          (await MetricSeriesStore.baseline(
+                'sleep_user_profile',
+              ))!['payload_json']
               as String,
         ),
         {'accepted': true},
       );
-      await LocalDb.updateBaseline(
+      await MetricSeriesStore.updateBaseline(
         'sleep_user_profile',
         (_) => '{"other_day":true}',
         sleepDayId: '2021-04-05',
       );
       expect(
         jsonDecode(
-          (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+          (await MetricSeriesStore.baseline(
+                'sleep_user_profile',
+              ))!['payload_json']
               as String,
         ),
         {'other_day': true},
@@ -377,8 +389,8 @@ void main() {
     'malformed display pin is preserved and does not refuse a correction',
     () async {
       await seed();
-      await LocalDb.setCursor(
-        LocalDb.kFrozenHeadlineCursor,
+      await CursorStore.write(
+        FrozenHeadlineStore.kCursorKey,
         '{retained-unreadable',
       );
       await accept('clear');
@@ -388,7 +400,7 @@ void main() {
               as Map;
       expect((recovery['pin'] as List).single['value'], '{retained-unreadable');
       expect((await LocalDb.dayResult(day))!['rmssd'], isNull);
-      expect(await LocalDb.frozenHeadline(), isNull);
+      expect(await FrozenHeadlineStore.read(), isNull);
     },
   );
 
@@ -420,7 +432,7 @@ void main() {
         expect(current['rmssd'], isNull);
         final bundle = SeriesCodec.decodePayloadJson(current['payload_json'])!;
         expect((bundle['scalars'] as Map)['strain'], 8);
-        expect((await LocalDb.metricSeries('strain')).single['value'], 8);
+        expect((await MetricSeriesStore.series('strain')).single['value'], 8);
         expect(await LocalDb.dayResultIds(kAlgoVersion), isNot(contains(day)));
         await LocalDb.close();
         expect((await SleepOverrideStore.correction(day))!['pending'], false);
@@ -587,7 +599,7 @@ void main() {
           dayId: other,
           action: 'clear',
         );
-        await LocalDb.setCursor('sleep_correction_revision', '$sourceRevision');
+        await CursorStore.write('sleep_correction_revision', '$sourceRevision');
         final incomingLedger = await SleepOverrideStore.correction(other);
         final exported = await LocalDb.exportCopy();
         await LocalDb.wipeAll();
@@ -606,7 +618,7 @@ void main() {
         expect(await SleepOverrideStore.correction(day), currentLedger);
         expect(await SleepOverrideStore.correction(other), incomingLedger);
         expect(
-          await LocalDb.putBaseline(
+          await MetricSeriesStore.putBaseline(
             'crossday',
             '{"obsolete":true}',
             sleepRevision: 5,
@@ -614,7 +626,7 @@ void main() {
           false,
         );
         expect(
-          await LocalDb.putBaseline(
+          await MetricSeriesStore.putBaseline(
             'crossday',
             '{"obsolete_source":true}',
             sleepRevision: sourceRevision,
@@ -622,7 +634,7 @@ void main() {
           false,
         );
         expect(
-          await LocalDb.putBaseline(
+          await MetricSeriesStore.putBaseline(
             'crossday',
             '{"fresh":true}',
             sleepRevision: await SleepOverrideStore.correctionRevision(),

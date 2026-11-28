@@ -61,7 +61,7 @@ void main() {
             );
             expect((await db.query('day_result')).single, before);
             expect(
-              await LocalDb.computeFreshness(LocalDb.kReencodeCursorKey),
+              await ComputeFreshnessStore.read(SeriesReencodeStore.kCursorKey),
               isNull,
             );
             await db.execute('DROP TRIGGER authored_housekeeping_refusal');
@@ -96,7 +96,7 @@ void main() {
   test(
     'an unreadable rescan baseline preserves the old signature and retries on the same engine',
     () async {
-      await LocalDb.setCursor('baseline_sig', 'authored-pending-signature');
+      await CursorStore.write('baseline_sig', 'authored-pending-signature');
       final db = await LocalDb.instance;
       final cursor = await db.query('sync_cursor');
       final baseline = await db.query('baselines');
@@ -156,9 +156,9 @@ void main() {
         'partial': 0,
         'rhr': 55.0,
       });
-      await LocalDb.putMetricSeriesValue(older, 'strain', 12);
-      await LocalDb.putMetricSeriesValue(older, 'trimp', 80);
-      await LocalDb.putMetricSeriesValue(edge, 'strain', 5);
+      await MetricSeriesStore.putValue(older, 'strain', 12);
+      await MetricSeriesStore.putValue(older, 'trimp', 80);
+      await MetricSeriesStore.putValue(edge, 'strain', 5);
       final expected = rescaledStrain(
         trimp: 80,
         wakeMinutes: 30,
@@ -179,7 +179,7 @@ void main() {
       expect(banked['window_json'], '{"authored":"retain"}');
       expect(banked['finalized'], 1);
       expect(
-        (await LocalDb.metricSeries(
+        (await MetricSeriesStore.series(
           'strain',
         )).singleWhere((r) => r['date'] == older)['value'],
         expected,

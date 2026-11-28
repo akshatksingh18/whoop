@@ -134,7 +134,7 @@ void main() {
             isNull,
             reason: 'one heart-rate point is not a measured main night',
           );
-          final freshness = await LocalDb.computeFreshness('today');
+          final freshness = await ComputeFreshnessStore.read('today');
           expect(freshness, isNotNull);
           final state = jsonDecode(freshness!['payload_json'] as String) as Map;
           expect(

@@ -85,7 +85,7 @@ void main() {
                 };
               },
             );
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': isRun ? 'running' : 'swimming',
           'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -95,7 +95,7 @@ void main() {
           'source': 'manual',
         });
         if (hasDayCoverage) {
-          await LocalDb.replacePhoneCoverageForDay(day, [
+          await StepCoverageStore.replacePhoneForDay(day, [
             (
               startTs: start.millisecondsSinceEpoch ~/ 1000,
               endTs: end.millisecondsSinceEpoch ~/ 1000,
@@ -163,7 +163,7 @@ void main() {
           expect(result.runs.kcal, 0);
           expect(calls.where((c) => c.method == 'motionWindow'), isEmpty);
         }
-        final row = (await LocalDb.session(id))!;
+        final row = (await SessionStore.byId(id))!;
         expect(row['status'], finished ? 'done' : 'live');
         expect(WorkoutClock.current, same(clock));
         expect(
@@ -176,7 +176,7 @@ void main() {
   test(
     'GPS running with unknown step overlap retains the approved conservative maximum',
     () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'type': 'running',
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -187,12 +187,12 @@ void main() {
       final morning =
           start.subtract(const Duration(hours: 1)).millisecondsSinceEpoch ~/
           1000;
-      await LocalDb.replacePhoneCoverageForDay(
+      await StepCoverageStore.replacePhoneForDay(
         day,
         [(startTs: morning, endTs: morning + 300, steps: 500)],
         distances: {'$morning-${morning + 300}': 500},
       );
-      await LocalDb.appendRoutePoints(id, [
+      await WorkoutRouteStore.appendPoints(id, [
         for (var i = 0; i < 7; i++)
           RoutePoint(
             seq: i,
@@ -226,7 +226,7 @@ void main() {
       expect(result.acsmParts!.steps, 0);
       expect(result.parts!.total, result.parts!.bmr + result.parts!.run);
       expect(result.walkingMeters, 500);
-      expect((await LocalDb.session(id))!['status'], 'live');
+      expect((await SessionStore.byId(id))!['status'], 'live');
       expect(WorkoutClock.current, same(clock));
     },
   );
@@ -238,7 +238,7 @@ void main() {
         final current = replacedRepo
             ? LocalRepositoryImpl(getProfileMap: () => profile.toMap())
             : repo;
-        Future<void> seed(String sessionId) => LocalDb.putSession({
+        Future<void> seed(String sessionId) => SessionStore.put({
           'id': sessionId,
           'type': 'running',
           'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -273,8 +273,14 @@ void main() {
         expect((await loadRuns(current)).map((r) => r.id), [
           'authored-new-run',
         ]);
-        expect((await LocalDb.session('authored-old-run'))!['status'], 'live');
-        expect((await LocalDb.session('authored-new-run'))!['status'], 'done');
+        expect(
+          (await SessionStore.byId('authored-old-run'))!['status'],
+          'live',
+        );
+        expect(
+          (await SessionStore.byId('authored-new-run'))!['status'],
+          'done',
+        );
       },
     );
   }

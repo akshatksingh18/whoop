@@ -57,7 +57,7 @@ Future<void> clearCursor(Database db) async {
   await db.delete(
     'compute_freshness',
     where: 'key = ?',
-    whereArgs: [LocalDb.kReencodeCursorKey],
+    whereArgs: [SeriesReencodeStore.kCursorKey],
   );
 }
 
@@ -79,7 +79,7 @@ void main() {
 
   tearDown(() async {
     // Static, so it would otherwise leak into whatever runs after it.
-    LocalDb.debugAfterReencodePrepare = null;
+    SeriesReencodeStore.debugAfterPrepare = null;
     await LocalDb.close();
     final dir = await databaseFactory.getDatabasesPath();
     await databaseFactory.deleteDatabase(p.join(dir, LocalDb.dbName));
@@ -94,7 +94,7 @@ void main() {
             )).first['payload_json']
             as String;
 
-    expect(await LocalDb.reencodeLegacyDayResults(), 1);
+    expect(await SeriesReencodeStore.run(), 1);
 
     final after =
         (await db.query(
@@ -108,7 +108,7 @@ void main() {
 
   test('every value survives the rewrite exactly', () async {
     await seedLegacy(db, '2026-01-01', t0);
-    await LocalDb.reencodeLegacyDayResults();
+    await SeriesReencodeStore.run();
 
     final after = SeriesCodec.decodePayloadJson(
       (await db.query(
@@ -125,7 +125,7 @@ void main() {
     // queue. Neither is this function's business.
     await seedLegacy(db, '2026-01-01', t0);
     final before = (await db.query('day_result')).first;
-    await LocalDb.reencodeLegacyDayResults();
+    await SeriesReencodeStore.run();
     final after = (await db.query('day_result')).first;
 
     for (final key in before.keys) {
@@ -142,7 +142,7 @@ void main() {
       'window_json': '{}',
       'computed_at': 0,
     });
-    expect(await LocalDb.reencodeLegacyDayResults(), 0);
+    expect(await SeriesReencodeStore.run(), 0);
   });
 
   test('the walk terminates and does not rescan converted rows', () async {
@@ -154,7 +154,7 @@ void main() {
     var total = 0;
     var calls = 0;
     while (calls < 20) {
-      final n = await LocalDb.reencodeLegacyDayResults(limit: 2);
+      final n = await SeriesReencodeStore.run(limit: 2);
       calls++;
       total += n;
       if (n == 0) break;
@@ -162,8 +162,8 @@ void main() {
     expect(total, 9, reason: 'every seeded day should be converted once');
 
     // Once done it stays done — further calls must not re-read anything.
-    expect(await LocalDb.reencodeLegacyDayResults(limit: 2), 0);
-    expect(await LocalDb.reencodeLegacyDayResults(limit: 2), 0);
+    expect(await SeriesReencodeStore.run(limit: 2), 0);
+    expect(await SeriesReencodeStore.run(limit: 2), 0);
 
     final rows = await db.query('day_result', columns: ['payload_json']);
     for (final r in rows) {
@@ -175,7 +175,7 @@ void main() {
     for (var d = 1; d <= 6; d++) {
       await seedLegacy(db, '2026-01-0$d', t0 + d * 86400);
     }
-    expect(await LocalDb.reencodeLegacyDayResults(limit: 2), 2);
+    expect(await SeriesReencodeStore.run(limit: 2), 2);
 
     // Simulate a relaunch mid-walk: the cursor is durable, the handle is not.
     await LocalDb.close();
@@ -183,7 +183,7 @@ void main() {
 
     var total = 2;
     for (var i = 0; i < 10; i++) {
-      final n = await LocalDb.reencodeLegacyDayResults(limit: 2);
+      final n = await SeriesReencodeStore.run(limit: 2);
       if (n == 0) break;
       total += n;
     }
@@ -192,8 +192,8 @@ void main() {
 
   test('a corrupt cursor restarts the walk instead of wedging it', () async {
     await seedLegacy(db, '2026-01-01', t0);
-    await LocalDb.putComputeFreshness(LocalDb.kReencodeCursorKey, 'not json');
-    expect(await LocalDb.reencodeLegacyDayResults(), 1);
+    await ComputeFreshnessStore.put(SeriesReencodeStore.kCursorKey, 'not json');
+    expect(await SeriesReencodeStore.run(), 1);
   });
 
   test('an unparseable payload is skipped, not destroyed', () async {
@@ -205,7 +205,7 @@ void main() {
       'computed_at': 0,
     });
     await clearCursor(db);
-    expect(await LocalDb.reencodeLegacyDayResults(), 0);
+    expect(await SeriesReencodeStore.run(), 0);
     final after = (await db.query(
       'day_result',
       columns: ['payload_json'],
@@ -232,7 +232,7 @@ void main() {
       'computed_at': 0,
     });
     await clearCursor(db);
-    expect(await LocalDb.reencodeLegacyDayResults(), 0);
+    expect(await SeriesReencodeStore.run(), 0);
     final after = (await db.query(
       'day_result',
       columns: ['payload_json'],
@@ -267,7 +267,7 @@ void main() {
     // rather than raced against a sleep, so the interleave is placed and the
     // test cannot quietly stop exercising it on a slower runner.
     final fresh = bundleFor(t0 + 40 * 86400 + 3600, n: 900);
-    LocalDb.debugAfterReencodePrepare = () async {
+    SeriesReencodeStore.debugAfterPrepare = () async {
       await db.update(
         'day_result',
         {'payload_json': jsonEncode(fresh)},
@@ -277,7 +277,7 @@ void main() {
     };
 
     expect(
-      await LocalDb.reencodeLegacyDayResults(),
+      await SeriesReencodeStore.run(),
       39,
       reason: 'the moved row must be the one row the walk declines to write',
     );
@@ -306,7 +306,7 @@ void main() {
     }
     const newest = '2026-01-40';
 
-    LocalDb.debugAfterReencodePrepare = () async {
+    SeriesReencodeStore.debugAfterPrepare = () async {
       await db.update(
         'day_result',
         {'payload_json': jsonEncode(bundleFor(t0 + 40 * 86400 + 3600, n: 900))},
@@ -315,16 +315,16 @@ void main() {
       );
     };
     expect(
-      await LocalDb.reencodeLegacyDayResults(),
+      await SeriesReencodeStore.run(),
       39,
       reason: 'precondition: the row was skipped',
     );
     // Only the first pass races; the retries below must run clean.
-    LocalDb.debugAfterReencodePrepare = null;
+    SeriesReencodeStore.debugAfterPrepare = null;
 
     var total = 0;
     for (var i = 0; i < 5; i++) {
-      final n = await LocalDb.reencodeLegacyDayResults();
+      final n = await SeriesReencodeStore.run();
       if (n == 0) break;
       total += n;
     }
@@ -350,8 +350,8 @@ void main() {
     // written the other way, this test still passed with the rewind deleted
     // from production, which is the only thing it exists to protect.
     await seedLegacy(db, '2026-01-01', t0);
-    expect(await LocalDb.reencodeLegacyDayResults(), 1);
-    expect(await LocalDb.reencodeLegacyDayResults(), 0); // walk is done
+    expect(await SeriesReencodeStore.run(), 1);
+    expect(await SeriesReencodeStore.run(), 0); // walk is done
 
     // A source export holding one legacy row, the shape an older device wrote.
     final srcPath = p.join(
@@ -385,7 +385,7 @@ void main() {
 
     var total = 0;
     for (var i = 0; i < 10; i++) {
-      final n = await LocalDb.reencodeLegacyDayResults(limit: 2);
+      final n = await SeriesReencodeStore.run(limit: 2);
       if (n == 0) break;
       total += n;
     }
@@ -411,7 +411,7 @@ void main() {
     }
     var total = 0;
     for (var i = 0; i < 10; i++) {
-      final n = await LocalDb.reencodeLegacyDayResults(limit: 1);
+      final n = await SeriesReencodeStore.run(limit: 1);
       if (n == 0) break;
       total += n;
     }

@@ -64,7 +64,7 @@ void main() {
           engine.debugInstallFakeLink(
             band: band,
             onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-                LocalDb.commitSyncBatch(
+                SyncLedgerStore.commitBatch(
                   raw,
                   samples,
                   trimToken: token,
@@ -121,7 +121,7 @@ void main() {
                 reason: 'An abandoned chunk must never trim the band',
               );
               expect(
-                await t.runAsync(() => LocalDb.getCursor('strap_trim')),
+                await t.runAsync(() => CursorStore.read('strap_trim')),
                 isNull,
               );
               if (task < 3) {

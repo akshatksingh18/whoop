@@ -41,8 +41,8 @@ void main() {
         app.device.generation = family;
         addTearDown(app.dispose);
         final db = (await t.runAsync(() async {
-          await LocalDb.addLiveCoverage(start, start + 1800, 300, day);
-          await LocalDb.replacePhoneCoverageForDay(day, [
+          await StepCoverageStore.add(start, start + 1800, 300, day);
+          await StepCoverageStore.replacePhoneForDay(day, [
             (startTs: start + 3600, endTs: start + 5400, steps: 450),
           ]);
           return LocalDb.instance;

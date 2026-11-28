@@ -57,7 +57,7 @@ void main() {
           engine.debugInstallFakeLink(
             band: band,
             onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-                LocalDb.commitSyncBatch(
+                SyncLedgerStore.commitBatch(
                   raw,
                   samples,
                   trimToken: token,

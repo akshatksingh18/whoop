@@ -122,7 +122,7 @@ void main() {
       'a workout started inside the DB round-trip is not overwritten',
       () async {
         final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'stale-from-a-killed-run',
           'start_ts': nowSec - 600,
           'end_ts': null,
@@ -159,7 +159,7 @@ void main() {
 
     test('with nothing live, a recent orphan is still resumed', () async {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'resumable',
         'start_ts': nowSec - 300,
         'end_ts': null,
@@ -179,7 +179,7 @@ void main() {
       'a resumed session keeps its ceiling, so the idle gate exists',
       () async {
         final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'resumable-gated',
           'start_ts': nowSec - 300,
           'end_ts': null,
@@ -214,7 +214,7 @@ void main() {
 
         final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         const staleId = 'stale-past-ceiling';
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': staleId,
           'start_ts': nowSec - 7 * 60 * 60, // 7h old, past the 6h ceiling
           'end_ts': null,
@@ -228,7 +228,7 @@ void main() {
         addTearDown(app.dispose);
         await app.debugReconcileOrphanedLiveWorkout();
 
-        final row = await LocalDb.session(staleId);
+        final row = await SessionStore.byId(staleId);
         expect(row?['status'], 'done');
         expect(row?['end_ts'], isNotNull);
         expect(

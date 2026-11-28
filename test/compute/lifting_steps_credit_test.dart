@@ -10,7 +10,7 @@ import '../support/coverage_store.dart';
 const profile = Profile(ageYears: 30, sex: 'f', weightKg: 72, heightCm: 170);
 
 Future<void> session(int start, int? end) {
-  return LocalDb.putSession({
+  return SessionStore.put({
     'id': 'authored-lifting-credit',
     'type': 'weight_training',
     'start_ts': start,
@@ -39,7 +39,7 @@ void main() {
         expect(before.approximate, isTrue);
         expect(before.sessions, 1);
 
-        await LocalDb.replacePhoneCoverageForDay(day, [
+        await StepCoverageStore.replacePhoneForDay(day, [
           (startTs: start, endTs: end, steps: steps),
           (startTs: end, endTs: end + 1800, steps: 1500),
         ]);
@@ -66,7 +66,7 @@ void main() {
       expect(priced.sessions, 1);
       expect(priced.approximate, isTrue);
       expect(priced.kcal, closeTo(90, 2));
-      final retained = (await LocalDb.session('authored-lifting-credit'))!;
+      final retained = (await SessionStore.byId('authored-lifting-credit'))!;
       expect(retained['end_ts'], isNull);
       expect(retained['start_ts'], ts);
     },

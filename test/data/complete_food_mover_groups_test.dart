@@ -21,11 +21,7 @@ void main() {
           for (var i = 0; i < 10; i++) {
             final morning = ago(2 * i + 1), prior = ago(2 * i + 2);
             final over = i < 5;
-            await LocalDb.putMetricSeriesValue(
-              morning,
-              outcome,
-              over ? 60 : 50,
-            );
+            await MetricSeriesStore.putValue(morning, outcome, over ? 60 : 50);
             await NutritionDb.put(
               db,
               FoodEntry(

@@ -41,7 +41,7 @@ void main() {
     final base = nowSec - 3600; // 1 h ago
     final date = _ymd(DateTime.fromMillisecondsSinceEpoch(base * 1000));
 
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'manual1',
       'start_ts': base,
       'end_ts': base + 1200,
@@ -50,7 +50,7 @@ void main() {
       'source': 'manual',
       'created_at': base * 1000,
     });
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'manual2',
       'start_ts': base + 2000,
       'end_ts': base + 2600,

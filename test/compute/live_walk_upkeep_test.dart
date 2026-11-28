@@ -36,7 +36,7 @@ void main() {
           heightCm: 171,
           weightKg: 72,
         );
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'type': 'walking',
           'start_ts': ts,
@@ -44,7 +44,7 @@ void main() {
           'source': 'manual',
           'created_at': ts * 1000,
         });
-        await LocalDb.replacePhoneCoverageForDay(
+        await StepCoverageStore.replacePhoneForDay(
           day,
           [
             (startTs: ts, endTs: ts + 180, steps: 300),
@@ -57,7 +57,7 @@ void main() {
           clock.setPaused(true, start.add(const Duration(minutes: 3)));
         }
         await WorkoutClock.flushWrites();
-        await LocalDb.appendRoutePoints(id, [
+        await WorkoutRouteStore.appendPoints(id, [
           for (var i = 0; i <= 12; i++)
             RoutePoint(
               seq: i,
@@ -66,7 +66,7 @@ void main() {
               lng: i * 30 / 111195,
             ).toRow(id),
         ]);
-        final row = await LocalDb.session(id);
+        final row = await SessionStore.byId(id);
         final db = await LocalDb.instance;
         final motion = await db.query('live_coverage');
         final repo = LocalRepositoryImpl(getProfileMap: profile.toMap);
@@ -90,7 +90,7 @@ void main() {
               ? 'Walking route + phone motion / estimated step length'
               : 'Recorded walking route',
         );
-        expect(await LocalDb.session(id), row);
+        expect(await SessionStore.byId(id), row);
         expect(row!['end_ts'], isNull);
         expect(await db.query('live_coverage'), motion);
         expect(WorkoutClock.current, same(clock));

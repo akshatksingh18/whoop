@@ -196,7 +196,7 @@ void main() {
         expect(cycle.first['kind'], 'start');
 
         // A rebuild is only a recovery if the result is a WORKING database.
-        final health = await LocalDb.schemaHealth();
+        final health = await DiagnosticsStore.schemaHealth();
         expect(health['ok'], isTrue, reason: '$health');
         await LocalDb.close();
       },
@@ -398,7 +398,7 @@ void main() {
         // `_days` is the importer's bookkeeping key, not a table: it must never
         // reach the rebuild card, which prints this map verbatim.
         expect(r.salvaged.containsKey('_days'), isFalse);
-        expect((await LocalDb.schemaHealth())['ok'], isTrue);
+        expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
 
         // THE USER IS TOLD. A rebuild nobody hears about is data vanishing.
         final card = dbRebuiltCard(r);
@@ -453,7 +453,7 @@ void main() {
         expect(r!.salvaged.values.where((v) => v > 0), isEmpty);
         expect(File(r.quarantinePath).readAsBytesSync(), garbage);
         expect(dbRebuiltCard(r)!.why, contains('Nothing could be read back.'));
-        expect((await LocalDb.schemaHealth())['ok'], isTrue);
+        expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
         // A working database, not just an opening one.
         await db.insert('journal', {
           'date': '2026-08-05',
@@ -516,7 +516,7 @@ void main() {
         (await db.rawQuery('PRAGMA user_version')).first.values.first,
         LocalDb.schemaVersion,
       );
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
       expect(dbRebuiltCard(r), isNotNull);
       await LocalDb.close();
     });

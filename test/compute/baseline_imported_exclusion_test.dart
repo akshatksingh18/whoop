@@ -127,27 +127,32 @@ void main() {
     expect(await LocalDb.importedDates(), {'2026-04-02', '2026-04-03'});
   });
 
-  test('trailingSeriesValues excludes imported days by default', () async {
-    await _measured('2026-05-01', 50);
-    await _imported('2026-05-02', 70);
-    await _measured('2026-05-03', 51);
+  test(
+    'MetricSeriesStore.trailingValues excludes imported days by default',
+    () async {
+      await _measured('2026-05-01', 50);
+      await _imported('2026-05-02', 70);
+      await _measured('2026-05-03', 51);
 
-    expect(await LocalDb.trailingSeriesValues('rhr', 28), [50, 51]);
-    expect(await LocalDb.trailingSeriesValues('rhr', 28, measuredOnly: false), [
-      50,
-      70,
-      51,
-    ]);
-  });
+      expect(await MetricSeriesStore.trailingValues('rhr', 28), [50, 51]);
+      expect(
+        await MetricSeriesStore.trailingValues('rhr', 28, measuredOnly: false),
+        [50, 70, 51],
+      );
+    },
+  );
 
   test(
-    'metricSeries keeps imported days for trends, drops them when asked',
+    'MetricSeriesStore.series keeps imported days for trends, drops them when asked',
     () async {
       await _measured('2026-06-01', 50);
       await _imported('2026-06-02', 70);
 
-      expect((await LocalDb.metricSeries('rhr')).length, 2);
-      expect((await LocalDb.metricSeries('rhr', measuredOnly: true)).length, 1);
+      expect((await MetricSeriesStore.series('rhr')).length, 2);
+      expect(
+        (await MetricSeriesStore.series('rhr', measuredOnly: true)).length,
+        1,
+      );
     },
   );
 }

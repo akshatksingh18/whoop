@@ -175,7 +175,7 @@ void main() {
 
   group('sessions.avg_hr', () {
     test('is a real column that round-trips', () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 's1',
         'start_ts': 1_714_600_000,
         'end_ts': 1_714_603_600,
@@ -192,7 +192,7 @@ void main() {
         'source': 'manual',
         'created_at': 1_714_603_600_000,
       });
-      final row = await LocalDb.session('s1');
+      final row = await SessionStore.byId('s1');
       expect(row!['avg_hr'], 142);
     });
 
@@ -200,16 +200,16 @@ void main() {
       // A re-score that found no substrate (avgHr omitted) must not delete the
       // measurement an earlier pass banked — that is the whole reason the column
       // exists rather than being recomputed on read.
-      await LocalDb.setSessionScores(
+      await SessionStore.setScores(
         's1',
         strain: 13.0,
         calories: 420.0,
         maxHr: 180,
         zoneMinJson: '[]',
       );
-      expect((await LocalDb.session('s1'))!['avg_hr'], 142);
+      expect((await SessionStore.byId('s1'))!['avg_hr'], 142);
 
-      await LocalDb.setSessionScores(
+      await SessionStore.setScores(
         's1',
         strain: 13.0,
         calories: 420.0,
@@ -217,7 +217,7 @@ void main() {
         zoneMinJson: '[]',
         avgHr: 150,
       );
-      expect((await LocalDb.session('s1'))!['avg_hr'], 150);
+      expect((await SessionStore.byId('s1'))!['avg_hr'], 150);
     });
 
     test(
@@ -235,7 +235,7 @@ void main() {
     );
 
     test('a session scored with no HR keeps a NULL average, not a 0', () async {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 's2',
         'start_ts': 1_714_700_000,
         'end_ts': 1_714_703_600,

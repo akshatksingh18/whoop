@@ -58,7 +58,7 @@ void main() {
       test(
         '${light ? 'refresh' : 'processing'} expiry while reading ${profile ? 'saved' : 'absent'} profile stops calculation and retries',
         () async {
-          await LocalDb.setCursor('authored-history', 'retain');
+          await CursorStore.write('authored-history', 'retain');
           final db = await LocalDb.instance;
           final originalCursors = await db.query('sync_cursor');
           final lease = await BandOwnership.acquireForeground();

@@ -298,7 +298,7 @@ void main() {
       const id = 'synthetic-private-run';
       final now = DateTime.now().subtract(const Duration(hours: 2));
       final begin = now.millisecondsSinceEpoch ~/ 1000;
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': begin,
         'end_ts': begin + 1200,
@@ -316,7 +316,7 @@ void main() {
             lng: 2,
           ),
       ];
-      await LocalDb.appendRoutePoints(id, [
+      await WorkoutRouteStore.appendPoints(id, [
         for (final point in points) point.toRow(id),
       ]);
       final repo = LocalRepositoryImpl(getProfileMap: () => null);

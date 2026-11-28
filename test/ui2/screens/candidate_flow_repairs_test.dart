@@ -102,11 +102,11 @@ void main() {
       'status': 'done',
       'created_at': 1790000000,
     };
-    await LocalDb.putSession(row);
-    await LocalDb.setSessionPrivate('b94-s1', true);
+    await SessionStore.put(row);
+    await SessionStore.setPrivate('b94-s1', true);
     await db.update('sessions', {'rpe': 7}, where: "id = 'b94-s1'");
     // A retime writes the row again without either field.
-    await LocalDb.putSession({...row, 'end_ts': 1790004000});
+    await SessionStore.put({...row, 'end_ts': 1790004000});
     final back = (await db.query('sessions', where: "id = 'b94-s1'")).single;
     expect(back['private'], 1);
     expect(back['rpe'], 7);
@@ -116,7 +116,7 @@ void main() {
   test('N02: the Lift Log CSV leaves out a private workout', () async {
     final t0 = DateTime(2026, 10, 1, 18);
     for (final (id, private) in [('b94-open', false), ('b94-hidden', true)]) {
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'start_ts': t0.millisecondsSinceEpoch ~/ 1000,
         'end_ts': t0.millisecondsSinceEpoch ~/ 1000 + 3000,
@@ -124,7 +124,7 @@ void main() {
         'status': 'done',
         'created_at': 1790000000,
       });
-      await LocalDb.setSessionPrivate(id, private);
+      await SessionStore.setPrivate(id, private);
       final w = LiftWorkout(startedAt: t0, sessionId: id);
       final e = w.addExercise(
         name: private ? 'Hidden press' : 'Open press',

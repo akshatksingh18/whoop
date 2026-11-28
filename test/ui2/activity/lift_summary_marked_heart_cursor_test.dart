@@ -39,7 +39,7 @@ void main() {
       );
       workout.finish(end);
       await LiftLogDb.save(workout);
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': id,
         'type': 'weight_training',
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -48,7 +48,7 @@ void main() {
         'source': 'manual',
         'created_at': 1,
       });
-      final saved = await LocalDb.session(id);
+      final saved = await SessionStore.byId(id);
       final preview = ActivityResult(
         activityByName('Weight training')!,
         sessionId: id,
@@ -80,7 +80,7 @@ void main() {
         expect(t.widget<ChartFrame>(chart).readout, contains(text));
         expect(t.widget<Scrubber>(cursor).value, fraction);
       }
-      expect(await t.runAsync(() => LocalDb.session(id)), saved);
+      expect(await t.runAsync(() => SessionStore.byId(id)), saved);
       final retained = (await t.runAsync(() => LiftLogDb.forSession(id)))!;
       expect(retained.exercises.single.sets.single.reps, 8);
       expect(retained.exercises.single.sets.single.load, 25);

@@ -29,7 +29,7 @@ void main() {
   test(
     'An invalid zone observation cannot mutate chronology or poison a valid retry',
     () async {
-      await LocalDb.setCursor('authored-unrelated', 'keep');
+      await CursorStore.write('authored-unrelated', 'keep');
       final db = await LocalDb.instance;
       final before = await db.query('sync_cursor');
       await expectLater(
@@ -61,7 +61,7 @@ void main() {
         payloadJson: '{}',
         windowJson: '{}',
       );
-      await LocalDb.putMetricSeriesValue('2021-04-03', 'rhr', 55);
+      await MetricSeriesStore.putValue('2021-04-03', 'rhr', 55);
       await db.insert('sessions', {
         'id': 'authored-older-session',
         'type': 'other',

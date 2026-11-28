@@ -219,12 +219,12 @@ void main() {
   test('a step goal can be earned on the held travel day', () async {
     final now = travelNow();
     final day = DayClock.forDate('2026-01-02')!;
-    await LocalDb.addLiveCoverage(
+    await StepCoverageStore.add(
       day.startSec,
       now.millisecondsSinceEpoch ~/ 1000,
       1000,
       day.date,
-      source: LocalDb.kStepSourcePhone,
+      source: StepCoverageStore.kStepSourcePhone,
     );
     expect(
       await StepGoals.qualifying(initial: 1000, at: now),
@@ -303,7 +303,7 @@ void main() {
       final now = travelNow();
       final end = now.subtract(const Duration(minutes: 10));
       final start = end.subtract(const Duration(minutes: 20));
-      await LocalDb.putSession({
+      await SessionStore.put({
         'id': 'synthetic-travel',
         'start_ts': start.millisecondsSinceEpoch ~/ 1000,
         'end_ts': end.millisecondsSinceEpoch ~/ 1000,
@@ -329,7 +329,7 @@ void main() {
         ('synthetic-a', start, endA, [(start: middle, end: endA)]),
         ('synthetic-b', middle, endB, <ActiveWindow>[]),
       ]) {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': begin.millisecondsSinceEpoch ~/ 1000,
           'end_ts': end.millisecondsSinceEpoch ~/ 1000,
@@ -375,7 +375,7 @@ void main() {
           80,
         ),
       ]) {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': id,
           'start_ts': begin.millisecondsSinceEpoch ~/ 1000,
           'end_ts': end.millisecondsSinceEpoch ~/ 1000,

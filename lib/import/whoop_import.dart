@@ -359,7 +359,7 @@ class WhoopImporter {
     if (start == null) return false;
     num? n(List<String> names) => double.tryParse(get(names));
     final id = 'whoop_$start';
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': start,
       'end_ts': end,

@@ -39,14 +39,17 @@ void main() {
         );
         final encoded = jsonEncode(candidate.toJson());
         expect(
-          await LocalDb.putSleepSessionCandidate(
+          await SleepIntermediateStore.putCandidate(
             dayId: date,
             algoVersion: kAlgoVersion,
             payloadJson: encoded,
           ),
           true,
         );
-        final cached = await LocalDb.sleepSessionCandidate(date, kAlgoVersion);
+        final cached = await SleepIntermediateStore.candidate(
+          date,
+          kAlgoVersion,
+        );
         await LocalDb.putDayResult(
           dayId: date,
           algoVersion: kAlgoVersion,
@@ -105,7 +108,10 @@ void main() {
         );
         expect(logs, contains(contains('kept the banked night')));
         expect(logs, contains(contains('sleep-window substrate pruned out')));
-        expect(await LocalDb.sleepSessionCandidate(date, kAlgoVersion), cached);
+        expect(
+          await SleepIntermediateStore.candidate(date, kAlgoVersion),
+          cached,
+        );
         expect(await LocalDb.dayResult(date), banked);
         expect(
           await db.query(
@@ -169,7 +175,7 @@ void main() {
             _ => '',
           };
           expect(
-            await LocalDb.putSleepSessionCandidate(
+            await SleepIntermediateStore.putCandidate(
               dayId: date,
               algoVersion: kAlgoVersion,
               payloadJson: original,
@@ -182,7 +188,7 @@ void main() {
               ? engine.run(const Profile(), force: true)
               : engine.rescanRecent(const Profile());
           expect(await run(), 1, reason: logs.join('\n'));
-          final after = (await LocalDb.sleepSessionCandidate(
+          final after = (await SleepIntermediateStore.candidate(
             date,
             kAlgoVersion,
           ))!;
@@ -210,7 +216,10 @@ void main() {
           expect(row['readiness'], isNull);
           expect(await LocalDb.dayResult(older), banked);
           expect(await LocalDb.lastDecodedRecTs(), ts);
-          expect(await LocalDb.baseline('sleep_user_profile'), isNull);
+          expect(
+            await MetricSeriesStore.baseline('sleep_user_profile'),
+            isNull,
+          );
           expect(logs.where((s) => s.contains('FAILED/skipped')), isEmpty);
           expect(engine.running, false);
           // A subsequent actual command must reuse/recover normally after the

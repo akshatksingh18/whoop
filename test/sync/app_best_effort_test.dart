@@ -39,7 +39,7 @@ class _Reader extends LocalRepositoryImpl {
 }
 
 Future<void> _heavyJob(AppState app) async {
-  await LocalDb.enqueueDeriveJob(
+  await ComputeJobStore.enqueueDerive(
     type: 'derive_heavy',
     reason: 'authored best-effort job',
   );
@@ -76,7 +76,7 @@ void main() {
       final app = _App();
       app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
       try {
-        await LocalDb.enqueueDeriveJob(
+        await ComputeJobStore.enqueueDerive(
           type: 'derive_heavy',
           reason: 'authored best-effort job',
         );
@@ -125,7 +125,7 @@ void main() {
       final app = _App();
       app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
       try {
-        await LocalDb.enqueueDeriveJob(
+        await ComputeJobStore.enqueueDerive(
           type: 'derive_heavy',
           reason: 'authored best-effort job',
         );
@@ -138,16 +138,16 @@ void main() {
           hasLength(1),
         );
         final deadline = DateTime.now().add(const Duration(seconds: 10));
-        while (await LocalDb.getCursor('baseline_sig') == null &&
+        while (await CursorStore.read('baseline_sig') == null &&
             DateTime.now().isBefore(deadline)) {
           await Future<void>.delayed(const Duration(milliseconds: 10));
         }
-        expect(await LocalDb.getCursor('baseline_sig'), isNotNull);
+        expect(await CursorStore.read('baseline_sig'), isNotNull);
         expect(
           app.logLines,
           contains(startsWith('[derive] rescan: baseline changed')),
         );
-        expect(await LocalDb.freelistBytes(), lessThan(1 << 20));
+        expect(await StorageRetentionStore.freelistBytes(), lessThan(1 << 20));
       } finally {
         app.dispose();
         await app.engine.disconnect();

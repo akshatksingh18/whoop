@@ -9,11 +9,12 @@
 // null for every input, so the composite went ABSENT and the ring rendered a
 // blank "—" (while the cached AI briefing still showed the earlier score).
 //
-// The fix rebuilds the persisted artifact from `metric_series` — keyed
-// `(date, key)` with REPLACE, so it is structurally one value per day and can
-// never carry duplicate-day pollution. `LocalDb.trailingSeriesValues` reads the
-// correct TRAILING window (the old `metricSeries(limit:)` returned the OLDEST n,
-// a second latent bug). These tests pin both the mechanism and the fix.
+// The fix rebuilds the persisted artifact from `metric_series` — keyed `(date,
+// key)` with REPLACE, so it is structurally one value per day and can never
+// carry duplicate-day pollution. `MetricSeriesStore.trailingValues` reads the
+// correct TRAILING window (the old `MetricSeriesStore.series(limit:)` returned
+// the OLDEST n, a second latent bug). These tests pin both the mechanism and
+// the fix.
 
 import 'dart:convert';
 
@@ -97,7 +98,7 @@ void main() {
   // ── The fix: metric_series is one-row-per-day, so the window stays clean ────
 
   test(
-    'trailingSeriesValues is de-duplicated no matter how often a day rederives',
+    'MetricSeriesStore.trailingValues is de-duplicated no matter how often a day rederives',
     () async {
       await (await LocalDb.instance).delete('metric_series');
       // 28 distinct real days.
@@ -111,7 +112,7 @@ void main() {
         await seedDay('2026-04-28', 88.0);
       }
 
-      final window = await LocalDb.trailingSeriesValues('readiness', 28);
+      final window = await MetricSeriesStore.trailingValues('readiness', 28);
       expect(window.length, 28, reason: 'still 28 days, not 28+15');
       expect(
         window.where((v) => v == 88.0).length,
@@ -128,7 +129,7 @@ void main() {
   );
 
   test(
-    'trailingSeriesValues returns the NEWEST n (oldest→newest), not the oldest n',
+    'MetricSeriesStore.trailingValues returns the NEWEST n (oldest→newest), not the oldest n',
     () async {
       await (await LocalDb.instance).delete('metric_series');
       // 30 days with strictly increasing readiness so newest vs oldest is obvious.
@@ -136,16 +137,17 @@ void main() {
         await seedDay('2026-05-${i.toString().padLeft(2, '0')}', 40.0 + i);
       }
 
-      final trailing = await LocalDb.trailingSeriesValues('readiness', 28);
+      final trailing = await MetricSeriesStore.trailingValues('readiness', 28);
       expect(trailing.length, 28);
       // Newest 28 = days 3..30 → values 43..70, returned ascending (oldest→newest).
       expect(trailing.first, 43.0);
       expect(trailing.last, 70.0);
 
-      // The pre-fix path (`metricSeries(limit:)` = `date ASC LIMIT n`) returned the
-      // OLDEST 28 instead — days 1..28 → 41..68. Pin the contrast so the trailing
-      // semantics can't silently regress back to leading.
-      final leading = await LocalDb.metricSeries('readiness', limit: 28);
+      // The pre-fix path (`MetricSeriesStore.series(limit:)` = `date ASC LIMIT
+      // n`) returned the OLDEST 28 instead — days 1..28 → 41..68. Pin the
+      // contrast so the trailing semantics can't silently regress back to
+      // leading.
+      final leading = await MetricSeriesStore.series('readiness', limit: 28);
       final leadingVals = [
         for (final r in leading) (r['value'] as num).toDouble(),
       ];
@@ -173,7 +175,7 @@ void main() {
       }
       // Persist a VALID but polluted artifact — exactly what an affected install
       // carries on disk: 20 identical readiness values (MAD would be 0).
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         'rolling_artifact',
         jsonEncode({
           'series': {

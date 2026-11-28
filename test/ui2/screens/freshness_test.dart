@@ -64,8 +64,8 @@ void main() {
       }),
       windowJson: '{}',
     );
-    await LocalDb.refreshComputeFreshness();
-    final row = (await LocalDb.computeFreshness('today'))!;
+    await ComputeFreshnessStore.refresh();
+    final row = (await ComputeFreshnessStore.read('today'))!;
     final status = (jsonDecode(row['payload_json'] as String) as Map)
         .cast<String, dynamic>();
 

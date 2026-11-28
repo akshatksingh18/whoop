@@ -90,7 +90,7 @@ void main() {
         weightKg: 70,
       ),
     );
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'authored-live',
       'type': type,
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,

@@ -21,7 +21,7 @@ void main() {
         const day = '2021-04-06';
         final start = localDayStartSec(day)! + 12 * 3600;
         final end = start + 3600;
-        await LocalDb.replacePhoneCoverageForDay(
+        await StepCoverageStore.replacePhoneForDay(
           day,
           [(startTs: start, endTs: end, steps: 1200)],
           distances: {'$start-$end': 600},

@@ -74,13 +74,13 @@ void main() {
         await db.query('metric_series', orderBy: 'key, date'),
         savedSeries,
       );
-      final marker = await LocalDb.computeFreshness(kStrainRescaleKey);
+      final marker = await ComputeFreshnessStore.read(kStrainRescaleKey);
       expect(marker, isNotNull);
 
       final repeat = await backfillStrainScale(female: false);
       expect(repeat.skipped, 0);
       expect(repeat.didWork, isFalse);
-      expect(await LocalDb.computeFreshness(kStrainRescaleKey), marker);
+      expect(await ComputeFreshnessStore.read(kStrainRescaleKey), marker);
       expect(await db.query('day_result', orderBy: 'day_id'), savedDays);
       expect(
         await db.query('metric_series', orderBy: 'key, date'),

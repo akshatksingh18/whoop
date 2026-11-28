@@ -44,7 +44,12 @@ import '../support/root_path_provider.dart';
 /// A reader that feeds `metric_series`, `day_result`, a `baselines` row, a
 /// rolling window, or any argument to an analytics function is the thing this
 /// whole file exists to stop.
-const _allowedToNameTheTable = {'lib/data/db.dart'};
+const _allowedToNameTheTable = {
+  'lib/data/db.dart',
+  // Names the table only to check it exists (schemaHealth); nothing computed
+  // reads it.
+  'lib/data/diagnostics_store.dart',
+};
 
 /// How a Dart file actually reaches a SQLite table: as a quoted table name
 /// handed to sqflite, or named in SQL text. Case-insensitive on the keyword,
@@ -101,17 +106,19 @@ Future<String> _everyDerivedRead() async {
   for (final key in const ['rhr', 'ln_rmssd', 'readiness', 'skin_temp_adc']) {
     // The production rolling-baseline loader itself, not a stand-in.
     out.writeln('window($key)=${await debugBaselineWindow(key)}');
-    out.writeln('trail($key)=${await LocalDb.trailingSeriesValues(key, 90)}');
+    out.writeln(
+      'trail($key)=${await MetricSeriesStore.trailingValues(key, 90)}',
+    );
     out.writeln(
       'trailAll($key)='
-      '${await LocalDb.trailingSeriesValues(key, 90, measuredOnly: false)}',
+      '${await MetricSeriesStore.trailingValues(key, 90, measuredOnly: false)}',
     );
-    out.writeln('series($key)=${await LocalDb.metricSeries(key)}');
+    out.writeln('series($key)=${await MetricSeriesStore.series(key)}');
     out.writeln(
       'seriesMeasured($key)='
-      '${await LocalDb.metricSeries(key, measuredOnly: true)}',
+      '${await MetricSeriesStore.series(key, measuredOnly: true)}',
     );
-    out.writeln('baseline($key)=${await LocalDb.baseline(key)}');
+    out.writeln('baseline($key)=${await MetricSeriesStore.baseline(key)}');
   }
   out.writeln(
     'importedDates=${(await LocalDb.importedDates()).toList()..sort()}',
@@ -203,7 +210,7 @@ void main() {
       await _measured('2026-01-01', 50, 4.0);
       await _measured('2026-01-02', 52, 4.2);
       await _measured('2026-01-03', 51, 4.1);
-      await LocalDb.putBaseline('rhr', '{"median":51}');
+      await MetricSeriesStore.putBaseline('rhr', '{"median":51}');
 
       final before = await _everyDerivedRead();
       expect(before, contains('window(rhr)=[50.0, 52.0, 51.0]'));
@@ -367,16 +374,16 @@ void main() {
     });
 
     test('schemaHealth requires it', () async {
-      final health = await LocalDb.schemaHealth();
+      final health = await DiagnosticsStore.schemaHealth();
       expect(health['ok'], isTrue, reason: '$health');
       final db = await LocalDb.instance;
       await db.execute('DROP TABLE observation');
-      final broken = await LocalDb.schemaHealth();
+      final broken = await DiagnosticsStore.schemaHealth();
       expect(broken['missing_tables'], contains('observation'));
       // …and the every-open repair puts it back.
       await LocalDb.close();
       await LocalDb.instance;
-      expect((await LocalDb.schemaHealth())['ok'], isTrue);
+      expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
     });
     // ── the v48 rung, against a REAL export ──────────────────────────────────
     // `WHOOP_TEST_DBS=/path/one.db,/path/two.db`. `onUpgrade` runs inside
@@ -461,7 +468,7 @@ void main() {
                 .toInt(),
             0,
           );
-          expect((await LocalDb.schemaHealth())['ok'], isTrue);
+          expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
           await LocalDb.close();
           await File(path).delete();
         },

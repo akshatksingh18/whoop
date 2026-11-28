@@ -92,7 +92,7 @@ Future<int> _seed(int count) async {
       ),
     );
   }
-  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
+  await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
   return ts;
 }
 

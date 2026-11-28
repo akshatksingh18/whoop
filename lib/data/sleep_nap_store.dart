@@ -46,11 +46,11 @@ abstract final class SleepNapStore {
       'source': source,
       'created_at': DateTime.now().millisecondsSinceEpoch ~/ 1000,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
-    await LocalDb.putBaseline(
+    await MetricSeriesStore.putBaseline(
       'nap_dirty:$dayId',
       '${DateTime.now().microsecondsSinceEpoch}',
     );
-    await LocalDb.putBaseline('nap_corrected:$dayId', '{}');
+    await MetricSeriesStore.putBaseline('nap_corrected:$dayId', '{}');
   }
 
   static Future<void> deleteEdit(String dayId, int startTs) async {
@@ -60,11 +60,11 @@ abstract final class SleepNapStore {
       where: 'day_id = ? AND start_ts = ?',
       whereArgs: [dayId, startTs],
     );
-    await LocalDb.putBaseline(
+    await MetricSeriesStore.putBaseline(
       'nap_dirty:$dayId',
       '${DateTime.now().microsecondsSinceEpoch}',
     );
-    await LocalDb.putBaseline('nap_corrected:$dayId', '{}');
+    await MetricSeriesStore.putBaseline('nap_corrected:$dayId', '{}');
   }
 
   static Future<List<Map<String, dynamic>>> edits(String dayId) async {

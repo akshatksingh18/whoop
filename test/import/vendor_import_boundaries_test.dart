@@ -31,7 +31,7 @@ void main() {
       expect(result.days, 0);
       final start =
           DateTime.parse('2021-04-06T12:00:00Z').millisecondsSinceEpoch ~/ 1000;
-      final saved = (await LocalDb.session('whoop_$start'))!;
+      final saved = (await SessionStore.byId('whoop_$start'))!;
       expect(saved['type'], 'synthetic run');
       expect(saved['source'], 'whoop');
       expect(saved['calories'], closeTo(100, .01));
@@ -39,7 +39,7 @@ void main() {
       expect(saved['max_hr'], 150);
       expect(saved['strain'], 3.5);
       final next = start + 86400;
-      final missing = (await LocalDb.session('whoop_$next'))!;
+      final missing = (await SessionStore.byId('whoop_$next'))!;
       expect(missing['type'], 'other');
       expect(missing['end_ts'], isNull);
       expect(missing['max_hr'], isNull);

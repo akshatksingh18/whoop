@@ -40,7 +40,7 @@ void main() {
     test(
       'invalid ${c.$1} bounds ${c.$2}/${c.$3} preserve every correction and journal row',
       () async {
-        await LocalDb.setCursor('authored_recovery', 'kept');
+        await CursorStore.write('authored_recovery', 'kept');
         await JournalStore.put(day, '["travel"]', 'Keep authored note');
         final before = await snapshot();
         await expectLater(
@@ -73,7 +73,7 @@ void main() {
         where: 'day_id=?',
         whereArgs: [day],
       );
-      await LocalDb.setFrozenHeadline(day, 72, explanation: {'authored': true});
+      await FrozenHeadlineStore.put(day, 72, explanation: {'authored': true});
       final before = await snapshot();
       await expectLater(
         SleepOverrideStore.acceptCorrection(

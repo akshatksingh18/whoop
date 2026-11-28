@@ -59,8 +59,8 @@ void main() {
           (await PairedDevice.load())?.remoteId,
           mode == 'not-paired' ? isNull : Peripheral.id.str,
         );
-        expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull);
-        expect(await LocalDb.computeJobs(state: 'queued'), isEmpty);
+        expect(await CursorStore.readInt('rec_ts_hw'), isNull);
+        expect(await ComputeJobStore.jobs(state: 'queued'), isEmpty);
         expect(peripheral.trace.where((s) => s.startsWith('write:')), isEmpty);
       },
     );
@@ -174,7 +174,7 @@ void main() {
             // The callback runs only after the production durable transaction.
             unawaited(() async {
               ackRows.add((await db.query('decoded_onehz')).length);
-              ackCursors.add(await LocalDb.getCursor('strap_trim'));
+              ackCursors.add(await CursorStore.read('strap_trim'));
               if (expireAfterAck) {
                 // The real registered headless stop disconnects this transport.
                 // No HISTORY_COMPLETE is supplied after the durable ACK.
@@ -203,9 +203,9 @@ void main() {
           expect(ackTokens, [
             [0x81, 0x72, 0x63, 0x54, 0x45, 0x36, 0x27, 0x18],
           ]);
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), at - 60);
+          expect(await CursorStore.readInt('rec_ts_hw'), at - 60);
           expect((await PairedDevice.load())!.generation, 'gen4');
-          final jobs = await LocalDb.computeJobs(state: 'queued');
+          final jobs = await ComputeJobStore.jobs(state: 'queued');
           expect(jobs, refuseQueue ? isEmpty : hasLength(1));
           if (!refuseQueue) expect(jobs.single['reason'], 'headless_sync');
           expect(peripheral.trace.last, 'disconnect');

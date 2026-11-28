@@ -249,7 +249,7 @@ void main() {
       );
       expect(await repo.getDayStrain(today), isEmpty);
       // Today's interim figure, the one the Today ring reads, is what shows.
-      await LocalDb.putWakeDayFeatures(
+      await SleepIntermediateStore.putWakeFeatures(
         dayId: today,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({'day_id': today, 'strain': 0.4}),

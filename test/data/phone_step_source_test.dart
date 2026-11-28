@@ -14,8 +14,8 @@ Future<void> _coverage(
   int end,
   int steps,
   String day, {
-  String source = LocalDb.kStepSourceBand,
-}) => LocalDb.addLiveCoverage(
+  String source = StepCoverageStore.kStepSourceBand,
+}) => StepCoverageStore.add(
   _at(day, start),
   _at(day, end),
   steps,
@@ -25,15 +25,15 @@ Future<void> _coverage(
 Future<void> _phone(
   String day,
   List<({int startTs, int endTs, int steps})> windows,
-) => LocalDb.replacePhoneCoverageForDay(day, [
+) => StepCoverageStore.replacePhoneForDay(day, [
   for (final w in windows)
     (startTs: _at(day, w.startTs), endTs: _at(day, w.endTs), steps: w.steps),
 ]);
 
 void main() {
   // These cover the band ladder, which the app keeps off (phone-only steps).
-  setUpAll(() => LocalDb.debugBandSteps = true);
-  tearDownAll(() => LocalDb.debugBandSteps = false);
+  setUpAll(() => StepCoverageStore.debugBandSteps = true);
+  tearDownAll(() => StepCoverageStore.debugBandSteps = false);
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -64,14 +64,14 @@ void main() {
   test('band-only day sums the band rows', () async {
     await _coverage(1000, 1600, 120, day);
     await _coverage(2000, 2600, 80, day);
-    expect((await LocalDb.resolvedStepsForDay(day)).total, 200);
+    expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 200);
   });
 
   test('phone WINS outright when present — the two are never added', () async {
     await _coverage(1000, 1600, 120, day); // wrist
     await _phone(day, [(startTs: 1000, endTs: 4600, steps: 350)]);
     // NOT 470. The phone measured the same walking from a better place.
-    expect((await LocalDb.resolvedStepsForDay(day)).total, 350);
+    expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 350);
   });
 
   test(
@@ -83,7 +83,7 @@ void main() {
           (startTs: 4600, endTs: 8200, steps: 120),
         ]);
       }
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 470);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 470);
     },
   );
 
@@ -93,7 +93,7 @@ void main() {
       await _phone(day, [(startTs: 1000, endTs: 4600, steps: 100)]);
       // The day filled in; the same hour now reads higher.
       await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 900);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 900);
     },
   );
 
@@ -105,10 +105,13 @@ void main() {
       await _phone(day, const []);
 
       // Clearing today's phone rows must not disturb yesterday.
-      expect((await LocalDb.resolvedStepsForDay(otherDay)).total, 700);
+      expect(
+        (await StepCoverageStore.resolvedStepsForDay(otherDay)).total,
+        700,
+      );
       // And with today's phone rows gone, the band fallback returns.
       await _coverage(9000, 9600, 42, day);
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 42);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 42);
     },
   );
 
@@ -116,7 +119,7 @@ void main() {
     'an empty phone sync leaves the day with no steps, not a zero row',
     () async {
       await _phone(day, const []);
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 0);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 0);
     },
   );
 
@@ -126,12 +129,12 @@ void main() {
       (startTs: 5000, endTs: 4000, steps: 50), // inverted
       (startTs: 6000, endTs: 9600, steps: 75), // the only real one
     ]);
-    expect((await LocalDb.resolvedStepsForDay(day)).total, 75);
+    expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 75);
     final db = await LocalDb.instance;
     final zeroRows = await db.query(
       'live_coverage',
       where: 'day = ? AND source = ? AND steps = 0',
-      whereArgs: [day, LocalDb.kStepSourcePhone],
+      whereArgs: [day, StepCoverageStore.kStepSourcePhone],
     );
     expect(zeroRows, hasLength(1));
     expect(zeroRows.single['start_ts'], _at(day, 1000));
@@ -139,7 +142,7 @@ void main() {
     final allPhoneRows = await db.query(
       'live_coverage',
       where: 'day = ? AND source = ?',
-      whereArgs: [day, LocalDb.kStepSourcePhone],
+      whereArgs: [day, StepCoverageStore.kStepSourcePhone],
     );
     expect(
       allPhoneRows,
@@ -152,15 +155,15 @@ void main() {
     await _coverage(1000, 1600, 64, day); // band
     await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
     expect(
-      (await LocalDb.resolvedStepsForDay(day)).total,
+      (await StepCoverageStore.resolvedStepsForDay(day)).total,
       900,
       reason: 'phone preferred',
     );
 
     // User turns phone steps off: the phone rows must go, or they would keep
     // overriding the band forever from a source no longer being read.
-    await LocalDb.clearPhoneCoverage();
-    expect((await LocalDb.resolvedStepsForDay(day)).total, 64);
+    await StepCoverageStore.clearPhone();
+    expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 64);
   });
 
   group('v27 migration — the path EVERY existing install takes', () {
@@ -203,7 +206,7 @@ void main() {
 
       // Reopening through LocalDb runs the real migration ladder.
       expect(
-        (await LocalDb.resolvedStepsForDay(day)).total,
+        (await StepCoverageStore.resolvedStepsForDay(day)).total,
         137,
         reason: 'the legacy row must still count after upgrading',
       );
@@ -211,24 +214,24 @@ void main() {
       // ...and it must be BAND, so a phone sync can still take precedence.
       await _phone(day, [(startTs: 1000, endTs: 4600, steps: 900)]);
       expect(
-        (await LocalDb.resolvedStepsForDay(day)).total,
+        (await StepCoverageStore.resolvedStepsForDay(day)).total,
         900,
         reason: 'legacy rows defaulting to phone would block this override',
       );
 
       // Dropping the phone rows reveals the legacy band row again — proof it
       // was never silently relabelled.
-      await LocalDb.clearPhoneCoverage();
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 137);
+      await StepCoverageStore.clearPhone();
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 137);
     });
 
     test('the migration is idempotent across repeated opens', () async {
       await seedV26();
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 137);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 137);
       await LocalDb.close();
       // The second open re-runs `_repairOpenSchema`, which also calls
       // `_ensureLiveCoverageSource`. An unguarded ALTER would throw here.
-      expect((await LocalDb.resolvedStepsForDay(day)).total, 137);
+      expect((await StepCoverageStore.resolvedStepsForDay(day)).total, 137);
     });
   });
 }

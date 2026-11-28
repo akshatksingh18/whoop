@@ -234,7 +234,7 @@ Future<RunSummary?> summariseRun(
     var known = false;
     final windows = dailyClock.onDay(label);
     for (final w in windows) {
-      final r = await LocalDb.resolvedStepsForWindow(w.start, w.end);
+      final r = await StepCoverageStore.resolvedStepsForWindow(w.start, w.end);
       if (r.hasPhoneCoverage || r.total > 0) {
         known = true;
         steps += r.total;

@@ -26,7 +26,7 @@ void main() {
         engine.debugInstallFakeLink(
           band: band,
           onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raw,
                 samples,
                 trimToken: token,
@@ -36,7 +36,7 @@ void main() {
           onWrite: (f) async {
             writes.add(p.parseFrame(f, profile: band)!.inner);
             expect((await LocalDb.instance).isOpen, true);
-            expect(await LocalDb.getCursor('strap_trim'), '8172635445362718');
+            expect(await CursorStore.read('strap_trim'), '8172635445362718');
             return true;
           },
         );
@@ -83,7 +83,7 @@ void main() {
         engine.debugInstallFakeLink(
           band: band,
           onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raw,
                 samples,
                 trimToken: token,
@@ -128,7 +128,7 @@ void main() {
             hasLength(3),
           );
           expect(
-            await LocalDb.getCursorInt('rec_ts_hw'),
+            await CursorStore.readInt('rec_ts_hw'),
             1760000015,
             reason:
                 'A diagnostic regression cannot move the durable high-water backwards',
@@ -150,7 +150,7 @@ void main() {
           return true;
         },
         onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-            LocalDb.commitSyncBatch(
+            SyncLedgerStore.commitBatch(
               raw,
               samples,
               trimToken: token,
@@ -167,7 +167,7 @@ void main() {
           'historical_data_while_not_syncing',
         );
         expect(writes, isEmpty);
-        expect(await LocalDb.getCursor('strap_trim'), isNull);
+        expect(await CursorStore.read('strap_trim'), isNull);
       } finally {
         await engine.disconnect();
       }

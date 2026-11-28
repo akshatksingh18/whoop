@@ -80,7 +80,7 @@ void main() {
 
   test('a baseline read never sees a non-band row', () async {
     await _useFreshDb('source_filter_test.db');
-    await LocalDb.commitSyncBatch([_raw(1000, 1)], [_sample(1000, 1)]);
+    await SyncLedgerStore.commitBatch([_raw(1000, 1)], [_sample(1000, 1)]);
     final db = await LocalDb.instance;
     // Stand in for a peripheral sensor writing into the substrate: one second
     // that is NOT the band's. Nothing routes here today, which is exactly why
@@ -116,13 +116,13 @@ void main() {
   test('the stamp comes from the commit, and absence stays NULL', () async {
     await _useFreshDb('device_family_write_test.db');
     // Stamped by a gen5 link.
-    await LocalDb.commitSyncBatch(
+    await SyncLedgerStore.commitBatch(
       [_raw(1000, 1)],
       [_sample(1000, 1)],
       deviceFamily: 'gen5',
     );
     // No link named itself — unknown provenance.
-    await LocalDb.commitSyncBatch([_raw(2000, 2)], [_sample(2000, 2)]);
+    await SyncLedgerStore.commitBatch([_raw(2000, 2)], [_sample(2000, 2)]);
 
     final db = await LocalDb.instance;
     Future<Object?> familyAt(String table, int recTs) async {
@@ -202,7 +202,7 @@ void main() {
           )).first['n'];
           expect(nonNull, 0, reason: '$src $t source must migrate as NULL');
         }
-        final health = await LocalDb.schemaHealth();
+        final health = await DiagnosticsStore.schemaHealth();
         expect(health['ok'], isTrue, reason: '$src $health');
       },
       timeout: const Timeout(Duration(minutes: 10)),

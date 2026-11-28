@@ -104,7 +104,7 @@ void main() {
     keys = Keychain();
     FlutterSecureStoragePlatform.instance = keys;
     await BodyLogDb.putWeight('2021-04-06', 70, 'kg', historyOnly: true);
-    await LocalDb.putMetricSeriesValue('2021-04-06', 'rhr', 55);
+    await MetricSeriesStore.putValue('2021-04-06', 'rhr', 55);
   });
   tearDown(() {
     app.dispose();
@@ -120,7 +120,7 @@ void main() {
           final db = await LocalDb.instance;
           await LocalDb.wipeAll();
           if (outcome == 'partial') {
-            await LocalDb.putMetricSeriesValue('2021-04-06', 'rhr', 55);
+            await MetricSeriesStore.putValue('2021-04-06', 'rhr', 55);
           }
           final view = outcome == 'partial' ? 'v_sessions' : 'v_daily';
           final original =

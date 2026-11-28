@@ -26,7 +26,7 @@ void main() {
     final started = DateTime(2021, 4, 6, 12);
     final ended = started.add(const Duration(minutes: 25));
     const id = 'authored-workout-finished-before-lift';
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'type': 'weightlifting',
       'status': 'done',
@@ -36,7 +36,7 @@ void main() {
       'source': 'manual',
       'duration_min': 25,
     });
-    final workout = await LocalDb.session(id);
+    final workout = await SessionStore.byId(id);
     final log = LiftWorkout(
       id: 'authored-open-set-log',
       startedAt: started,
@@ -79,7 +79,7 @@ void main() {
     expect(saved?.exercises.single.toJson(), log.exercises.single.toJson());
     expect(saved?.setCount, 1);
     expect(await LiftLogDb.active(), isNull);
-    expect(await LocalDb.session(id), workout);
+    expect(await SessionStore.byId(id), workout);
     final preserved = (await LiftLogDb.finished(
       includePrivate: true,
     )).singleWhere((w) => w.id == unrelated.id);

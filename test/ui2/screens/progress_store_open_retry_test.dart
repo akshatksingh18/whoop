@@ -40,7 +40,7 @@ void main() {
           await LocalDb.close();
           LocalDb.dbName = originalPath;
         });
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'authored-progress-history',
           'start_ts': 1617714000,
           'type': 'running',
@@ -48,7 +48,7 @@ void main() {
           'source': 'manual',
           'created_at': 1,
         });
-        final original = await LocalDb.session('authored-progress-history');
+        final original = await SessionStore.byId('authored-progress-history');
         expect(original, isNotNull);
 
         Future<void> refuseOpen() async {
@@ -77,7 +77,7 @@ void main() {
         await io(t);
         expect(find.text('Progress could not load'), findsNothing);
         expect(find.text('Progress'), findsOneWidget);
-        expect(await LocalDb.session('authored-progress-history'), original);
+        expect(await SessionStore.byId('authored-progress-history'), original);
         expect(
           await t.runAsync(marker.readAsString),
           'Personal data is never used by this fixture.',

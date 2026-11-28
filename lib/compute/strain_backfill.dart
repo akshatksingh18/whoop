@@ -92,11 +92,11 @@ Future<StrainBackfillResult> backfillStrainScale({
   bool force = false,
 }) async {
   const none = StrainBackfillResult(seriesDays: 0, bundleDays: 0, skipped: 0);
-  if (!force && await LocalDb.computeFreshness(kStrainRescaleKey) != null) {
+  if (!force && await ComputeFreshnessStore.read(kStrainRescaleKey) != null) {
     return none;
   }
 
-  final strainRows = await LocalDb.metricSeries('strain');
+  final strainRows = await MetricSeriesStore.series('strain');
   if (strainRows.isEmpty) {
     await _markDone();
     return none;
@@ -222,11 +222,11 @@ Future<StrainBackfillResult> backfillStrainScale({
 }
 
 Future<void> _markDone() =>
-    LocalDb.putComputeFreshness(kStrainRescaleKey, jsonEncode({'done': true}));
+    ComputeFreshnessStore.put(kStrainRescaleKey, jsonEncode({'done': true}));
 
 Future<Map<String, double>> _byDate(String key) async {
   final out = <String, double>{};
-  for (final r in await LocalDb.metricSeries(key)) {
+  for (final r in await MetricSeriesStore.series(key)) {
     final d = r['date'] as String?;
     final v = (r['value'] as num?)?.toDouble();
     if (d != null && v != null) out[d] = v;

@@ -61,7 +61,7 @@ void main() {
         const day = '2021-04-06';
         final ts = localDayStartSec(day)! + 12 * 3600;
         const n = 600;
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'synthetic-recovery',
           'type': 'cycling',
           'start_ts': ts,
@@ -104,7 +104,7 @@ void main() {
         final bundle = jsonDecode(row['payload_json'] as String) as Map;
         expect(bundle, isNotEmpty);
         expect(engine.running, false);
-        final session = (await LocalDb.session('synthetic-recovery'))!;
+        final session = (await SessionStore.byId('synthetic-recovery'))!;
         expect(session['start_ts'], ts);
         expect(session['end_ts'], ended ? ts + 300 : isNull);
         if (ended) {

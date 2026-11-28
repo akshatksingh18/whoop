@@ -78,18 +78,18 @@ void main() {
         type: 'yoga',
       );
       final id = saved['workout_id'] as String;
-      expect((await LocalDb.session(id))?['end_ts'], start + 1800);
+      expect((await SessionStore.byId(id))?['end_ts'], start + 1800);
       published(1);
       await failWrites();
       await expectLater(
         repo.setWorkoutWindow(id, startTs: start, endTs: start + 2400),
         throwsA(anything),
       );
-      expect((await LocalDb.session(id))?['end_ts'], start + 1800);
+      expect((await SessionStore.byId(id))?['end_ts'], start + 1800);
       published(1);
       await db.execute('DROP TRIGGER synthetic_fail_session');
       await repo.setWorkoutWindow(id, startTs: start, endTs: start + 2400);
-      expect((await LocalDb.session(id))?['end_ts'], start + 2400);
+      expect((await SessionStore.byId(id))?['end_ts'], start + 2400);
       published(2);
     },
   );

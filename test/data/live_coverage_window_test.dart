@@ -4,7 +4,7 @@
 // 1 Hz estimate (an imported band window or a phone row), so derivation can
 // exclude those minutes and nothing is counted twice. A zero-width window
 // would exclude ~one minute instead of the real period, so:
-//   1. LocalDb.addLiveCoverage widens or rejects degenerate windows, and
+//   1. StepCoverageStore.add widens or rejects degenerate windows, and
 //   2. legacy zero-width rows already on disk stay readable.
 
 import 'package:flutter_test/flutter_test.dart';
@@ -17,8 +17,8 @@ import 'package:whoop_companion/data/live_coverage_policy.dart';
 
 void main() {
   // These cover the band ladder, which the app keeps off (phone-only steps).
-  setUpAll(() => LocalDb.debugBandSteps = true);
-  tearDownAll(() => LocalDb.debugBandSteps = false);
+  setUpAll(() => StepCoverageStore.debugBandSteps = true);
+  tearDownAll(() => StepCoverageStore.debugBandSteps = false);
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -39,11 +39,11 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   // ── 1. the persistence guard ───────────────────────────────────────────────
-  group('LocalDb.addLiveCoverage', () {
+  group('StepCoverageStore.add', () {
     test('a zero-duration window that claims steps is never persisted as-is — '
         'and its steps are not lost', () async {
       const start = 1786000000;
-      await LocalDb.addLiveCoverage(start, start, 1657, '2026-08-06');
+      await StepCoverageStore.add(start, start, 1657, '2026-08-06');
 
       final db = await LocalDb.instance;
       final rows = await db.query(
@@ -57,15 +57,18 @@ void main() {
       expect(end, greaterThan(start));
       expect(end - start, minCoverageSecondsForSteps(1657));
       expect((rows.first['steps'] as num).toInt(), 1657);
-      expect((await LocalDb.resolvedStepsForDay('2026-08-06')).total, 1657);
+      expect(
+        (await StepCoverageStore.resolvedStepsForDay('2026-08-06')).total,
+        1657,
+      );
     });
 
     test(
       'an impossibly short window is widened to what its steps imply',
       () async {
         const start = 1786100000;
-        await LocalDb.addLiveCoverage(start, start + 3, 600, '2026-08-07');
-        final windows = await LocalDb.coverageWindowsOverlapping(
+        await StepCoverageStore.add(start, start + 3, 600, '2026-08-07');
+        final windows = await StepCoverageStore.windowsOverlapping(
           start,
           start + 3600,
         );
@@ -81,8 +84,8 @@ void main() {
       'an inverted window is rejected, and a zero-step window is not stored',
       () async {
         const start = 1786200000;
-        await LocalDb.addLiveCoverage(start, start - 60, 500, '2026-08-08');
-        await LocalDb.addLiveCoverage(start, start + 600, 0, '2026-08-08');
+        await StepCoverageStore.add(start, start - 60, 500, '2026-08-08');
+        await StepCoverageStore.add(start, start + 600, 0, '2026-08-08');
         final db = await LocalDb.instance;
         final rows = await db.query(
           'live_coverage',
@@ -95,8 +98,8 @@ void main() {
 
     test('an honest window is stored exactly as measured', () async {
       const start = 1786300000;
-      await LocalDb.addLiveCoverage(start, start + 1800, 2000, '2026-08-09');
-      final windows = await LocalDb.coverageWindowsOverlapping(
+      await StepCoverageStore.add(start, start + 1800, 2000, '2026-08-09');
+      final windows = await StepCoverageStore.windowsOverlapping(
         start,
         start + 3600,
       );
@@ -119,8 +122,11 @@ void main() {
           'steps': 1230,
           'day': '2026-08-10',
         });
-        expect((await LocalDb.resolvedStepsForDay('2026-08-10')).total, 1230);
-        final windows = await LocalDb.coverageWindowsOverlapping(
+        expect(
+          (await StepCoverageStore.resolvedStepsForDay('2026-08-10')).total,
+          1230,
+        );
+        final windows = await StepCoverageStore.windowsOverlapping(
           start,
           start + 3600,
         );

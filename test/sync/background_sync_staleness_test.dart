@@ -41,7 +41,7 @@ void main() {
     SharedPreferences.setMockInitialValues({'notif_device': false});
     // Four days since the last record: well past the notify tier.
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await LocalDb.setCursor('rec_ts_hw', '${nowSec - 4 * 24 * 3600}');
+    await CursorStore.write('rec_ts_hw', '${nowSec - 4 * 24 * 3600}');
 
     await checkSyncStaleness();
 
@@ -56,7 +56,7 @@ void main() {
 
   test('a band that has never synced is not stale', () async {
     SharedPreferences.setMockInitialValues({});
-    await LocalDb.setCursor('rec_ts_hw', '0');
+    await CursorStore.write('rec_ts_hw', '0');
     await checkSyncStaleness();
     final prefs = await SharedPreferences.getInstance();
     await prefs.reload();

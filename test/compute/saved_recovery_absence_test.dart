@@ -67,7 +67,7 @@ void main() {
             windowJson: '{}',
             series: {'readiness': 56, 'ln_rmssd_v2': math.log(42)},
           );
-          await LocalDb.putComputeFreshness(
+          await ComputeFreshnessStore.put(
             'today',
             jsonEncode({
               'today_day': current,
@@ -76,8 +76,8 @@ void main() {
               'activity_state': 'ready',
             }),
           );
-          await LocalDb.setFrozenHeadline(day, 80, explanation: snapshot);
-          final pin = await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor);
+          await FrozenHeadlineStore.put(day, 80, explanation: snapshot);
+          final pin = await CursorStore.read(FrozenHeadlineStore.kCursorKey);
           final d = await ReadinessData.load(
             LocalRepositoryImpl(getProfileMap: () => {}),
             day: historical ? day : null,
@@ -111,10 +111,10 @@ void main() {
                 : "the night's breathing windows disagreed",
           );
           expect(
-            await LocalDb.frozenHeadlineExplanation(day, 80),
+            await FrozenHeadlineStore.explanation(day, 80),
             equals(snapshot),
           );
-          expect(await LocalDb.getCursor(LocalDb.kFrozenHeadlineCursor), pin);
+          expect(await CursorStore.read(FrozenHeadlineStore.kCursorKey), pin);
           final live =
               jsonDecode(
                     (await LocalDb.dayResult(day))!['payload_json'] as String,

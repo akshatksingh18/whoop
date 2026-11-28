@@ -1,4 +1,4 @@
-// F-3: `stopWorkout()` ended with `unawaited(LocalDb.putSession(sessionRow))`
+// F-3: `stopWorkout()` ended with `unawaited(SessionStore.put(sessionRow))`
 // and cleared `activeWorkout` on the very next line. The in-memory session is
 // the ONLY other copy — the `status='live'` row written at start carries no
 // duration, no zones, no calories and no strain — so a failed write destroyed
@@ -100,7 +100,7 @@ void main() {
       },
     );
     const id = 'authored-private';
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'type': 'walk',
       'start_ts': 1617710000,
@@ -114,7 +114,7 @@ void main() {
     expect(signals, 0);
     await db.execute('ALTER TABLE sessions_hidden RENAME TO sessions');
     await repo.setWorkoutPrivate(id, true);
-    expect((await LocalDb.session(id))?['private'], 1);
+    expect((await SessionStore.byId(id))?['private'], 1);
     expect(signals, 1);
   });
 }

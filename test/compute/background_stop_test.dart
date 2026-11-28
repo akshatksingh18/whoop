@@ -87,7 +87,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 20));
     }
     expect(runs, 2, reason: 'requeued work drains on the next opportunity');
-    final failed = await LocalDb.computeJobs(state: 'failed', limit: 10);
+    final failed = await ComputeJobStore.jobs(state: 'failed', limit: 10);
     expect(failed, isEmpty);
   });
 }

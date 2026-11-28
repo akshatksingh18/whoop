@@ -32,7 +32,7 @@ void main() {
       'Trends opens both the history and sleeping heart rate at ${scale}x',
       (tester) async {
         final day = todayLabel();
-        await LocalDb.putBaseline(
+        await MetricSeriesStore.putBaseline(
           'crossday',
           jsonEncode({
             'algo_version': kAlgoVersion,
@@ -49,9 +49,9 @@ void main() {
           rhr: 64,
           series: const {'rhr': 64},
         );
-        final artifact = await LocalDb.baseline('crossday');
+        final artifact = await MetricSeriesStore.baseline('crossday');
         final result = await LocalDb.dayResult(day);
-        final history = await LocalDb.metricSeries('rhr');
+        final history = await MetricSeriesStore.series('rhr');
         final app = AppState.forTesting()
           ..repo = LocalRepositoryImpl(getProfileMap: () => {});
         final theme = ThemeController.seed(
@@ -97,9 +97,9 @@ void main() {
         await io(tester);
         expect(review, findsNothing);
         expect(find.byType(HealthScreen), findsOneWidget);
-        expect(await LocalDb.baseline('crossday'), artifact);
+        expect(await MetricSeriesStore.baseline('crossday'), artifact);
         expect(await LocalDb.dayResult(day), result);
-        expect(await LocalDb.metricSeries('rhr'), history);
+        expect(await MetricSeriesStore.series('rhr'), history);
       },
     );
   }

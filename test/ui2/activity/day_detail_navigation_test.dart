@@ -94,7 +94,7 @@ void main() {
                   },
                 );
                 if (known) {
-                  await LocalDb.replacePhoneCoverageForDay(
+                  await StepCoverageStore.replacePhoneForDay(
                     labels[i],
                     [
                       (
@@ -107,7 +107,7 @@ void main() {
                   );
                 }
               }
-              await LocalDb.setCursor('authored-navigation', 'retain');
+              await CursorStore.write('authored-navigation', 'retain');
               final db = await LocalDb.instance;
               return {
                 for (final table in [

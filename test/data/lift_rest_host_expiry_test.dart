@@ -71,7 +71,7 @@ void main() {
           DateTime.now().millisecondsSinceEpoch ~/ 1000 * 1000,
         ).subtract(const Duration(minutes: 10));
         await t.runAsync(() async {
-          await LocalDb.putSession({
+          await SessionStore.put({
             'id': id,
             'type': a.typeKey,
             'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -118,7 +118,7 @@ void main() {
           await t.pump(const Duration(seconds: 1));
           await t.pumpAndSettle();
         }
-        final saved = await t.runAsync(() => LocalDb.session(id));
+        final saved = await t.runAsync(() => SessionStore.byId(id));
         final lift = (await t.runAsync(
           () => LiftLogDb.forSession(id),
         ))!.toJson();
@@ -127,7 +127,7 @@ void main() {
         );
         await t.pump(const Duration(seconds: 2));
         expect(await t.runAsync(RestTimer.deadline), isNull);
-        expect(await t.runAsync(() => LocalDb.session(id)), saved);
+        expect(await t.runAsync(() => SessionStore.byId(id)), saved);
         expect(
           (await t.runAsync(() => LiftLogDb.forSession(id)))!.toJson(),
           lift,

@@ -67,7 +67,7 @@ void main() {
           final raw = await db.query('decoded_onehz');
           final beats = await db.query('decoded_rr');
           final series = await db.query('metric_series');
-          final signature = await LocalDb.getCursor('baseline_sig');
+          final signature = await CursorStore.read('baseline_sig');
           final logs = <String>[];
           final engine = DerivationEngine(
             background: true,
@@ -98,7 +98,7 @@ void main() {
           expect(await db.query('metric_series'), series);
           expect(await db.query('decoded_onehz'), raw);
           expect(await db.query('decoded_rr'), beats);
-          expect(await LocalDb.getCursor('baseline_sig'), signature);
+          expect(await CursorStore.read('baseline_sig'), signature);
           final retry = DerivationEngine(background: true);
           expect(await run(retry), 1);
           expect(retry.running, false);

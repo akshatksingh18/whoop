@@ -54,12 +54,15 @@ void main() {
           'non-map' => '[1, 2, 3]',
           _ => '',
         };
-        await LocalDb.putSleepSessionCandidate(
+        await SleepIntermediateStore.putCandidate(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: original,
         );
-        final before = await LocalDb.sleepSessionCandidate(day, kAlgoVersion);
+        final before = await SleepIntermediateStore.candidate(
+          day,
+          kAlgoVersion,
+        );
         final logs = <String>[];
         final engine = DerivationEngine(background: true, log: logs.add);
         expect(
@@ -67,7 +70,10 @@ void main() {
           1,
           reason: logs.join('\n'),
         );
-        final after = (await LocalDb.sleepSessionCandidate(day, kAlgoVersion))!;
+        final after = (await SleepIntermediateStore.candidate(
+          day,
+          kAlgoVersion,
+        ))!;
         final restored = SleepSessionCandidate.fromJson(
           (jsonDecode(after['payload_json'] as String) as Map)
               .cast<String, dynamic>(),
@@ -92,7 +98,7 @@ void main() {
         expect(row['rmssd'], isNull);
         expect(row['readiness'], isNull);
         expect(await LocalDb.lastDecodedRecTs(), ts);
-        expect(await LocalDb.baseline('sleep_user_profile'), isNull);
+        expect(await MetricSeriesStore.baseline('sleep_user_profile'), isNull);
         expect(logs.where((s) => s.contains('FAILED/skipped')), isEmpty);
         expect(engine.running, false);
       },

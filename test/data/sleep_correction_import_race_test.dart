@@ -110,7 +110,7 @@ Future<void> originalNight() async {
     offsetTs: 9000,
     source: 'manual',
   );
-  await LocalDb.setFrozenHeadline(day, 72);
+  await FrozenHeadlineStore.put(day, 72);
 }
 
 void main() {
@@ -151,7 +151,7 @@ void main() {
       expect((await SleepOverrideStore.getOverride(day))!['offset_ts'], 7200);
       expect((await SleepOverrideStore.correction(day))!['generation'], 1);
       expect((await LocalDb.dayResult(day))!['readiness'], isNull);
-      expect(await LocalDb.frozenHeadline(), isNull);
+      expect(await FrozenHeadlineStore.read(), isNull);
       expect(failure, isA<DbImportException>());
       final error = failure as DbImportException;
       if (table == 'lift_log') {
@@ -162,7 +162,7 @@ void main() {
     });
   }
   test('a pin-only backup cannot revive a corrected night', () async {
-    await LocalDb.setFrozenHeadline(day, 72);
+    await FrozenHeadlineStore.put(day, 72);
     final backup = await LocalDb.exportCopy();
     await LocalDb.wipeAll();
     await originalNight();
@@ -175,7 +175,7 @@ void main() {
       failure = e;
     }
     expect(
-      await LocalDb.frozenHeadline(),
+      await FrozenHeadlineStore.read(),
       isNull,
       reason:
           'A display-cache-only backup is still an overlap with corrected sleep',
@@ -241,8 +241,8 @@ void main() {
               'An older restore may not recreate data after the accepted reset',
         );
         expect(await SleepOverrideStore.getOverride(day), isNull);
-        expect(await LocalDb.frozenHeadline(), isNull);
-        expect(await LocalDb.metricSeries('readiness'), isEmpty);
+        expect(await FrozenHeadlineStore.read(), isNull);
+        expect(await MetricSeriesStore.series('readiness'), isEmpty);
         expect(failure, isA<DbImportException>());
       },
     );
@@ -273,7 +273,7 @@ void main() {
       expect(await db.query('compute_freshness'), isEmpty);
       expect(await LocalDb.dayResult(day), isNull);
       expect(await SleepOverrideStore.getOverride(day), isNull);
-      expect(await LocalDb.frozenHeadline(), isNull);
+      expect(await FrozenHeadlineStore.read(), isNull);
       expect(await db.query('body_weight_reading'), isEmpty);
       expect(await db.query('day_zone'), isEmpty);
     },

@@ -81,7 +81,7 @@ void main() {
           );
         }
         await LocalDb.upsertDevice(adapterId: 'gen4');
-        await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
+        await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
         final app = App()
           ..user = {'age': 30, 'sex': 'f', 'weight_kg': 70, 'height_cm': 170};
         final repo = Reader(refuse);
@@ -111,7 +111,7 @@ void main() {
           expect(repo.rescores, 1);
           expect(note, 'Band not connected');
           expect(
-            await LocalDb.getCursorInt('rec_ts_hw'),
+            await CursorStore.readInt('rec_ts_hw'),
             start + substrate.tsSec.length - 1,
           );
           expect(

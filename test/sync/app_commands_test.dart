@@ -701,7 +701,7 @@ void main() {
         (await LocalDb.dayResult('2026-01-02'))?['payload_json'],
         contains('whoop_export'),
       );
-      expect(await LocalDb.metricValueOn('2026-01-02', 'rhr'), 55);
+      expect(await MetricSeriesStore.valueOn('2026-01-02', 'rhr'), 55);
     },
   );
   test(
@@ -710,7 +710,7 @@ void main() {
       await app.rebuildInsights();
       expect(app.insightsRebuilding, isFalse);
       expect(app.insightsRebuildMessage, contains('At least 3 usable days'));
-      expect(await LocalDb.baseline('crossday'), isNull);
+      expect(await MetricSeriesStore.baseline('crossday'), isNull);
     },
   );
   for (final finish in [false, true]) {
@@ -785,7 +785,7 @@ void main() {
         expect(await db.query('day_result'), before);
         expect(app.activeWorkout, isNull);
         expect(
-          (await LocalDb.session('authored-nap-blocker'))?['status'],
+          (await SessionStore.byId('authored-nap-blocker'))?['status'],
           finish ? 'done' : null,
         );
       },
@@ -811,10 +811,10 @@ void main() {
           source: 'manual',
         );
         const previous = '{"synthetic":"previous rollup"}';
-        await LocalDb.putBaseline('crossday', previous);
+        await MetricSeriesStore.putBaseline('crossday', previous);
         final before = await db.query('day_result');
         final edit = await SleepNapStore.edits(day);
-        final stamp = (await LocalDb.baseline(
+        final stamp = (await MetricSeriesStore.baseline(
           'nap_dirty:$day',
         ))!['payload_json'];
         final revision = app.insightsRevision.value;
@@ -849,11 +849,13 @@ void main() {
           );
           expect(await SleepNapStore.edits(day), edit);
           expect(
-            (await LocalDb.baseline('nap_dirty:$day'))!['payload_json'],
+            (await MetricSeriesStore.baseline(
+              'nap_dirty:$day',
+            ))!['payload_json'],
             stamp,
           );
           expect(
-            (await LocalDb.baseline('crossday'))!['payload_json'],
+            (await MetricSeriesStore.baseline('crossday'))!['payload_json'],
             previous,
           );
           // The durable edit publishes once; failed calculation publishes no success.
@@ -875,7 +877,10 @@ void main() {
         expect(await SleepNapStore.pendingDays(), isEmpty);
         expect(await SleepNapStore.edits(day), edit);
         expect(await db.query('day_result'), before);
-        expect((await LocalDb.baseline('crossday'))!['payload_json'], previous);
+        expect(
+          (await MetricSeriesStore.baseline('crossday'))!['payload_json'],
+          previous,
+        );
       },
     );
   }
@@ -892,7 +897,7 @@ void main() {
           series: {'rhr': 55},
         );
         const previous = '{"synthetic":"previous rollup"}';
-        await LocalDb.putBaseline('crossday', previous);
+        await MetricSeriesStore.putBaseline('crossday', previous);
         final before = await db.query('day_result');
         final revision = app.insightsRevision.value;
         if (refused == 'read') {
@@ -914,7 +919,7 @@ void main() {
           );
           expect(app.insightsRevision.value, revision);
           expect(
-            (await LocalDb.baseline('crossday'))?['payload_json'],
+            (await MetricSeriesStore.baseline('crossday'))?['payload_json'],
             previous,
           );
         } finally {
@@ -932,7 +937,10 @@ void main() {
         expect(app.insightsRebuildMessage, contains('At least 3 usable days'));
         expect(app.insightsRevision.value, greaterThan(revision));
         expect(await db.query('day_result'), before);
-        expect((await LocalDb.baseline('crossday'))?['payload_json'], previous);
+        expect(
+          (await MetricSeriesStore.baseline('crossday'))?['payload_json'],
+          previous,
+        );
       },
     );
   }

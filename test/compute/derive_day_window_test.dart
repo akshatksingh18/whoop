@@ -239,7 +239,7 @@ void main() {
         'calories_total',
         'steps',
       ]) {
-        out[key] = await LocalDb.metricValueOn(dayLabel, key);
+        out[key] = await MetricSeriesStore.valueOn(dayLabel, key);
       }
       return out;
     }
@@ -287,7 +287,7 @@ void main() {
 
       // ...and it must be ABSENT, not a zero sitting in the series where it
       // would drag every average and "most steps" record down.
-      expect(await LocalDb.metricValueOn('2026-04-11', 'steps'), isNull);
+      expect(await MetricSeriesStore.valueOn('2026-04-11', 'steps'), isNull);
 
       // The bundle's own `steps` block must be absent-shaped too, not just
       // value-less. (The previous assertion here checked `got.containsKey`,
@@ -363,7 +363,7 @@ void main() {
         dayLabel,
       });
       expect(
-        await LocalDb.metricValueOn(dayLabel, 'active_min'),
+        await MetricSeriesStore.valueOn(dayLabel, 'active_min'),
         isNull,
         reason: 'no gravity vector all day — absent, not a measured zero',
       );
@@ -377,7 +377,10 @@ void main() {
         const Profile(),
         {ctlLabel},
       );
-      expect(await LocalDb.metricValueOn(ctlLabel, 'active_min'), isNotNull);
+      expect(
+        await MetricSeriesStore.valueOn(ctlLabel, 'active_min'),
+        isNotNull,
+      );
     });
   });
 }

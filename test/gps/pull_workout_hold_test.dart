@@ -90,7 +90,10 @@ void main() {
             expect(app.insightsRevision.value, greaterThan(revision));
           }
           expect(app.activeWorkout!.workoutId, 'synthetic-held');
-          expect((await LocalDb.session('synthetic-held'))!['status'], 'live');
+          expect(
+            (await SessionStore.byId('synthetic-held'))!['status'],
+            'live',
+          );
           expect(app.reconnects, mode == 'disconnected' ? 1 : 0);
           expect(app.pulls, mode == 'band-refused' ? 1 : 0);
         } finally {

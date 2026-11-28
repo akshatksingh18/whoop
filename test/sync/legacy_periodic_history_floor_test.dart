@@ -31,7 +31,7 @@ void main() {
       final engine = BleEngine(onRecord: (_, _) async {}, onState: (_) {});
       peripheral.engine = engine;
       BleEngine.resetBandClaimForTest();
-      await LocalDb.setCursor('authored-retained-cursor', 'keep');
+      await CursorStore.write('authored-retained-cursor', 'keep');
       try {
         final ready = await runZoned(
           () => engine.connectToRemoteId(
@@ -82,7 +82,7 @@ void main() {
         expect(peripheral.trace, before);
         expect(engine.offloadActive, isFalse);
         expect(engine.isConnected, isTrue);
-        expect(await LocalDb.getCursor('authored-retained-cursor'), 'keep');
+        expect(await CursorStore.read('authored-retained-cursor'), 'keep');
       } finally {
         await engine.disconnect();
         BleEngine.resetBandClaimForTest();

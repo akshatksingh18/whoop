@@ -35,7 +35,7 @@ void main() {
         final release = Completer<int?>();
         final archived = Completer<void>();
         const frontier = 1617710200;
-        await LocalDb.setCursor('rec_ts_hw', '$frontier');
+        await CursorStore.write('rec_ts_hw', '$frontier');
         final db = await LocalDb.instance;
         final cursors = await db.query('sync_cursor');
         final engine = BleEngine(
@@ -44,7 +44,7 @@ void main() {
               reading.complete();
               return release.future;
             }
-            return LocalDb.getCursorInt(name);
+            return CursorStore.readInt(name);
           },
           onRecord: (_, _) async => fail('Undecodable history must stay raw'),
           onState: (_) {},

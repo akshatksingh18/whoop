@@ -85,7 +85,7 @@ void main() {
         testWidgets(
           '$destination Settings route/back retains saved data $language/$scale',
           (t) async {
-            await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+            await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
             final db = await LocalDb.instance;
             final saved = await db.query('metric_series');
             final prefs = (await t.runAsync(SharedPreferences.getInstance))!;

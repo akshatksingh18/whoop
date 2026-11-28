@@ -196,7 +196,7 @@ class NoopIngest {
 
   Future<void> _deriveAndPrune(String date) async {
     // Real steps must be banked BEFORE deriving: the derivation reads them via
-    // LocalDb.coverageWindowsOverlapping at derive time.
+    // StepCoverageStore.windowsOverlapping at derive time.
     final st = _stepsByDate.remove(date);
     if (st != null) steps += await flushStepCoverage(st, date);
     // Build a Substrate from everything buffered (prev + current date) and
@@ -408,13 +408,13 @@ class NoopIngest {
   ) async {
     if (stepSamples.isEmpty) return 0;
     final ts = stepSamples.keys.toList()..sort();
-    final existing = await LocalDb.coverageWindowsOverlapping(
+    final existing = await StepCoverageStore.windowsOverlapping(
       ts.first,
       ts.last + 1,
     );
     var banked = 0;
     for (final r in stepRuns(stepSamples, covered: existing)) {
-      await LocalDb.addLiveCoverage(r.startSec, r.endSec, r.steps, date);
+      await StepCoverageStore.add(r.startSec, r.endSec, r.steps, date);
       banked += r.steps;
     }
     return banked;

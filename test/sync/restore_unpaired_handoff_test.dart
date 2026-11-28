@@ -73,7 +73,7 @@ void main() {
             rhr: 57,
             series: {'rhr': 57},
           );
-          await LocalDb.setCursor('strap_trim', '7401020304050607');
+          await CursorStore.write('strap_trim', '7401020304050607');
           final db = await LocalDb.instance;
           final rows = await db.query('day_result'),
               series = await db.query('metric_series');
@@ -104,7 +104,7 @@ void main() {
           );
           expect(await db.query('day_result'), rows);
           expect(await db.query('metric_series'), series);
-          expect(await LocalDb.getCursor('strap_trim'), '7401020304050607');
+          expect(await CursorStore.read('strap_trim'), '7401020304050607');
           expect(await db.query('decoded_onehz'), isEmpty);
           expect(await db.query('raw_archive'), isEmpty);
           // A refused completion does not wedge Dart ownership or consume a
@@ -115,7 +115,7 @@ void main() {
           expect(calls.map((c) => c.method), ['syncDone']);
           expect(offers, owner == 'absent' ? 0 : 2);
           expect(await db.query('day_result'), rows);
-          expect(await LocalDb.getCursor('strap_trim'), '7401020304050607');
+          expect(await CursorStore.read('strap_trim'), '7401020304050607');
         },
       );
     }

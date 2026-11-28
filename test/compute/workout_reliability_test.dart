@@ -224,11 +224,11 @@ void main() {
     });
   });
 
-  group('requeueComputeJob (the post-claim gate race)', () {
-    // `_drain()` clears the gate, then awaits takeNextComputeJob(). A workout
-    // starting inside that window leaves a job already marked `running` that
-    // must be handed back rather than run — otherwise it sits claimed until
-    // the next recoverComputeJobs().
+  group('ComputeJobStore.requeue (the post-claim gate race)', () {
+    // `_drain()` clears the gate, then awaits ComputeJobStore.takeNext(). A
+    // workout starting inside that window leaves a job already marked
+    // `running` that must be handed back rather than run — otherwise it sits
+    // claimed until the next ComputeJobStore.recover().
     //
     // Deliberately tests the PRIMITIVE rather than simulating the interleaving.
     // Hitting that window means racing a real DB round-trip, which is a coin
@@ -239,20 +239,20 @@ void main() {
     setUp(() async {
       // Leave no jobs behind from an earlier group.
       for (var i = 0; i < 8; i++) {
-        final j = await LocalDb.takeNextComputeJob();
+        final j = await ComputeJobStore.takeNext();
         if (j == null) break;
-        await LocalDb.completeComputeJob(j['id'].toString());
+        await ComputeJobStore.complete(j['id'].toString());
       }
     });
 
     test('a claimed job returns to the queue and stays runnable', () async {
-      await LocalDb.enqueueDeriveJob(type: 'derive_light', reason: 'test');
+      await ComputeJobStore.enqueueDerive(type: 'derive_light', reason: 'test');
 
-      final claimed = await LocalDb.takeNextComputeJob();
+      final claimed = await ComputeJobStore.takeNext();
       expect(claimed, isNotNull, reason: 'the job should be claimable');
       expect(claimed!['state'], 'running');
       final id = claimed['id'].toString();
-      // NOTE: takeNextComputeJob returns the row as it was BEFORE its own
+      // NOTE: ComputeJobStore.takeNext returns the row as it was BEFORE its own
       // update, so `attempts` here is the pre-increment value. That makes the
       // comparison below the meaningful one: if the requeue failed to undo the
       // increment, the second claim would report a higher number than the
@@ -261,14 +261,14 @@ void main() {
 
       // While claimed, nothing else can take it.
       expect(
-        await LocalDb.takeNextComputeJob(),
+        await ComputeJobStore.takeNext(),
         isNull,
         reason: 'a running job must not be handed out twice',
       );
 
-      await LocalDb.requeueComputeJob(id);
+      await ComputeJobStore.requeue(id);
 
-      final again = await LocalDb.takeNextComputeJob();
+      final again = await ComputeJobStore.takeNext();
       expect(
         again,
         isNotNull,
@@ -283,13 +283,13 @@ void main() {
             'from the same count as the first — a deferral is not a retry',
       );
 
-      await LocalDb.completeComputeJob(id);
-      expect(await LocalDb.takeNextComputeJob(), isNull);
+      await ComputeJobStore.complete(id);
+      expect(await ComputeJobStore.takeNext(), isNull);
     });
 
     test('requeueing an unknown id is harmless', () async {
-      await LocalDb.requeueComputeJob('no-such-job');
-      expect(await LocalDb.takeNextComputeJob(), isNull);
+      await ComputeJobStore.requeue('no-such-job');
+      expect(await ComputeJobStore.takeNext(), isNull);
     });
   });
 

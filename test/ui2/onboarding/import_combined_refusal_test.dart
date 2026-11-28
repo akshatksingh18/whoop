@@ -56,7 +56,7 @@ void main() {
           expect(app.backups, isEmpty);
         } else {
           expect(app.backups, ['accepted.db']);
-          expect(await LocalDb.session('accepted.db'), isNotNull);
+          expect(await SessionStore.byId('accepted.db'), isNotNull);
           expect(await JournalStore.entries(), isEmpty);
         }
         for (var i = 0; i < inputs.length; i++) {

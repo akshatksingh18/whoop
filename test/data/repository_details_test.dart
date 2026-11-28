@@ -137,9 +137,9 @@ void main() {
       }),
       series: {'rhr': 50, 'rmssd': 48},
     );
-    await LocalDb.putMetricSeriesValue(shiftDayLabel(day, -1), 'rhr', 54);
-    await LocalDb.putMetricSeriesValue(shiftDayLabel(day, -1), 'rmssd', 52);
-    await LocalDb.putComputeFreshness(
+    await MetricSeriesStore.putValue(shiftDayLabel(day, -1), 'rhr', 54);
+    await MetricSeriesStore.putValue(shiftDayLabel(day, -1), 'rmssd', 52);
+    await ComputeFreshnessStore.put(
       'today',
       jsonEncode({
         'today_day': day,
@@ -147,7 +147,7 @@ void main() {
         'activity_state': 'ready',
       }),
     );
-    await LocalDb.putBaseline(
+    await MetricSeriesStore.putBaseline(
       'crossday',
       jsonEncode({
         'algo_version': kAlgoVersion,
@@ -254,7 +254,7 @@ void main() {
       'stale/future rollup by $days days withholds learned need and old advice',
       () async {
         await seed();
-        await LocalDb.putBaseline(
+        await MetricSeriesStore.putBaseline(
           'crossday',
           jsonEncode({
             'algo_version': kAlgoVersion,

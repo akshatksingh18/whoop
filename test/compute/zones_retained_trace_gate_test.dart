@@ -19,11 +19,11 @@ Future<void> _anchors() async {
     windowJson: '{}',
     finalized: true,
   );
-  await LocalDb.putMetricSeriesValue(todayLabel(), 'hr_ceiling_bpm', 196);
+  await MetricSeriesStore.putValue(todayLabel(), 'hr_ceiling_bpm', 196);
   // Fifteen real stored nights, deliberately asymmetric: median=50, mean=58.
   // The reader must describe the same median anchor the zone method uses.
   for (var i = 0; i < 15; i++) {
-    await LocalDb.putMetricSeriesValue(
+    await MetricSeriesStore.putValue(
       todayLabel(DateTime.now().subtract(Duration(days: i))),
       'rhr',
       i < 6
@@ -43,7 +43,7 @@ Future<void> _session(
   final start =
       DateTime.now().millisecondsSinceEpoch ~/ 1000 -
       (live ? 3600 : (index + 1) * 86400);
-  await LocalDb.putSession({
+  await SessionStore.put({
     'id': 'retained-zone-$index',
     'start_ts': start,
     'end_ts': live ? null : start + 3000,
@@ -76,7 +76,7 @@ void main() {
           for (var i = 0; i < traced + legacy; i++) {
             await _session(i, traced: i < traced);
           }
-          final before = await LocalDb.sessionsInRange(0, 1 << 40);
+          final before = await SessionStore.inRange(0, 1 << 40);
           final result = await repo.getZones();
           expect(result['source'], 'karvonen');
           expect(result['resting_days'], 15);
@@ -114,7 +114,7 @@ void main() {
               false,
             );
           }
-          expect(await LocalDb.sessionsInRange(0, 1 << 40), before);
+          expect(await SessionStore.inRange(0, 1 << 40), before);
           expect(
             await LocalDb.lastDecodedRecTs(),
             isNull,
@@ -133,7 +133,7 @@ void main() {
           await _session(i);
         }
         await _session(20, live: true);
-        final live = await LocalDb.session('retained-zone-20');
+        final live = await SessionStore.byId('retained-zone-20');
         final result = await repo.getZones();
         final distribution = result['distribution'] as Map?;
         if (traced < 8) {
@@ -145,7 +145,7 @@ void main() {
           expect(distribution['hard_min'], traced * 10);
         }
         expect(
-          await LocalDb.session('retained-zone-20'),
+          await SessionStore.byId('retained-zone-20'),
           live,
           reason:
               'opening Zones must not score or end the accumulating session',

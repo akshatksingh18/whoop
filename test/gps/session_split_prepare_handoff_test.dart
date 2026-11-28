@@ -39,8 +39,8 @@ Future<void> _seed() async {
       ),
     );
   }
-  await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
-  await LocalDb.putSession({
+  await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
+  await SessionStore.put({
     'id': _id,
     'start_ts': _ts,
     'end_ts': _ts + 240,
@@ -51,7 +51,7 @@ Future<void> _seed() async {
     'trace_samples': 0,
     'created_at': 1,
   });
-  await LocalDb.appendRoutePoints(_id, [
+  await WorkoutRouteStore.appendPoints(_id, [
     for (var i = 0; i <= 240; i++)
       RoutePoint(
         seq: i,
@@ -63,7 +63,7 @@ Future<void> _seed() async {
         alt: null,
       ).toRow(_id),
   ]);
-  await LocalDb.putWorkoutSplits(_id, [
+  await WorkoutRouteStore.putSplits(_id, [
     {
       'km': 1,
       'meters': 800.0,
@@ -164,8 +164,8 @@ void main() {
           );
         }
         final frames = await db.query('decoded_onehz');
-        final route = await LocalDb.routePoints(_id);
-        final before = await LocalDb.session(_id);
+        final route = await WorkoutRouteStore.points(_id);
+        final before = await SessionStore.byId(_id);
         final splits = await splitRows(_id);
         final failed = [
           'read-refusal',
@@ -180,7 +180,7 @@ void main() {
         }
         try {
           await repo.getWorkout(_id);
-          final row = (await LocalDb.session(_id))!;
+          final row = (await SessionStore.byId(_id))!;
           expect(row['trace_samples'], failed ? 0 : 240);
           if (failed) expect(row['trace_json'], before!['trace_json']);
           expect(await splitRows(_id), splits);
@@ -191,7 +191,7 @@ void main() {
               route,
             );
           } else {
-            expect(await LocalDb.routePoints(_id), route);
+            expect(await WorkoutRouteStore.points(_id), route);
           }
         } finally {
           if (mode == 'read-refusal') {
@@ -213,7 +213,7 @@ void main() {
             await db.execute('DROP TRIGGER authored_score_refusal');
           }
           await repo.getWorkout(_id);
-          expect((await LocalDb.session(_id))!['trace_samples'], 240);
+          expect((await SessionStore.byId(_id))!['trace_samples'], 240);
           final frozen = await splitRows(_id);
           expect(frozen, hasLength(2));
           expect(frozen.first['net_elev_m'], isNull);
@@ -239,7 +239,7 @@ void main() {
           edits++;
           mutation = () async {
             if (mode == 'delete') {
-              await LocalDb.deleteSession(_id);
+              await SessionStore.delete(_id);
             } else {
               await db.update(
                 'sessions',
@@ -258,11 +258,11 @@ void main() {
         await mutation;
         expect(edits, 1);
         expect(publications, 0);
-        final row = await LocalDb.session(_id);
+        final row = await SessionStore.byId(_id);
         if (mode == 'delete') {
           expect(row, isNull);
           expect(await splitRows(_id), isEmpty);
-          expect(await LocalDb.routePoints(_id), isEmpty);
+          expect(await WorkoutRouteStore.points(_id), isEmpty);
         } else {
           expect(row!['trace_samples'], 0);
           expect(row['trace_json'], isNull);

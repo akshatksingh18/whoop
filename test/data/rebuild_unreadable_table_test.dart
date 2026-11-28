@@ -22,7 +22,7 @@ void main() {
       () async {
         const day = '2021-04-06';
         await JournalStore.put(day, '["water"]', 'Authored daily evidence');
-        await LocalDb.putBaseline('authored-marker', '{"bound":7}');
+        await MetricSeriesStore.putBaseline('authored-marker', '{"bound":7}');
         final prior = await LocalDb.instance;
         final journal = await prior.query('journal');
         final baseline = (await prior.query(
@@ -64,8 +64,8 @@ void main() {
           await recovered.query('journal'),
           incompatible ? isEmpty : journal,
         );
-        expect(await LocalDb.baseline('authored-marker'), baseline);
-        expect((await LocalDb.schemaHealth())['ok'], isTrue);
+        expect(await MetricSeriesStore.baseline('authored-marker'), baseline);
+        expect((await DiagnosticsStore.schemaHealth())['ok'], isTrue);
         final quarantine = File(receipt.quarantinePath);
         expect(quarantine.existsSync(), isTrue);
         final quarantined = await databaseFactory.openDatabase(

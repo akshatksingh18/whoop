@@ -26,7 +26,7 @@ void main() {
   });
 
   Future<void> suggestion(String id, int start, int end) =>
-      LocalDb.putWorkoutSuggestion({
+      WorkoutSuggestionStore.put({
         'id': id,
         'date': '2026-09-01',
         'start_ts': start,
@@ -36,7 +36,7 @@ void main() {
       });
 
   Future<void> session(String id, int start, int? end, String status) =>
-      LocalDb.putSession({
+      SessionStore.put({
         'id': id,
         'start_ts': start,
         'end_ts': end,
@@ -60,7 +60,7 @@ void main() {
     await suggestion('after', t0 + 3120, t0 + 4000);
 
     final active = [
-      for (final r in await LocalDb.activeWorkoutSuggestions()) r['id'],
+      for (final r in await WorkoutSuggestionStore.active()) r['id'],
     ];
     expect(active, containsAll(['elsewhere', 'after']));
     expect(active, isNot(contains('inside')));

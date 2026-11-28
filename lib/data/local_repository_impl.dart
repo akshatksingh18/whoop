@@ -111,17 +111,17 @@ class LocalRepositoryImpl extends LocalRepository {
   /// The stored artifact, UNGATED — only `_crossDay` and `getInsights` may
   /// read this, and only so `getInsights` can report why it withheld it.
   Future<Map<String, dynamic>?> _crossDayArtifact() async {
-    final r = await LocalDb.baseline('crossday');
+    final r = await MetricSeriesStore.baseline('crossday');
     return _decode(r?['payload_json']);
   }
 
   Future<Map<String, dynamic>?> _freshness(String key) async {
-    final row = await LocalDb.computeFreshness(key);
+    final row = await ComputeFreshnessStore.read(key);
     return _decode(row?['payload_json']);
   }
 
   Future<Map<String, dynamic>?> _wakeFeatures(String dayId) async {
-    final row = await LocalDb.wakeDayFeatures(dayId, kAlgoVersion);
+    final row = await SleepIntermediateStore.wakeFeatures(dayId, kAlgoVersion);
     return _decode(row?['payload_json']);
   }
 
@@ -267,7 +267,7 @@ class LocalRepositoryImpl extends LocalRepository {
     var todayFresh = await _freshness('today');
     if (todayFresh == null ||
         todayFresh['today_day']?.toString() != _todayLocalLabel()) {
-      await LocalDb.refreshComputeFreshness();
+      await ComputeFreshnessStore.refresh();
       todayFresh = await _freshness('today');
     }
     final todayDay = todayFresh?['today_day']?.toString() ?? _todayLocalLabel();
@@ -352,7 +352,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // latest re-derive. Gated to today's OWN overnight (`ready`, matching day)
     // so a prior-night fallback or a stale yesterday pin can never leak in.
     if (overnightState == 'ready') {
-      final pin = await LocalDb.frozenHeadline();
+      final pin = await FrozenHeadlineStore.read();
       if (pin != null && pin.day == todayDay) {
         readinessScalar = pin.value.toDouble();
       }
@@ -520,7 +520,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // B88-04: the need that applied to the night shown — stored on the day
       // before it — so the Home sleep bar never divides by tonight's need.
       if (sleepBundle?['date'] case final String night)
-        'sleep_need_night_min': await LocalDb.metricValueOn(
+        'sleep_need_night_min': await MetricSeriesStore.valueOn(
           dayLabelOf(
             DateTime(
               DateTime.parse(night).year,
@@ -562,10 +562,10 @@ class LocalRepositoryImpl extends LocalRepository {
   /// Pure, so it is testable without a database — the seam that consumes it
   /// ([getInsights]) cannot be.
   ///
-  /// `getInsights` used to return `LocalDb.baseline('crossday')` VERBATIM. No
-  /// screen prints the artifact's date, so a rollup written weeks ago under an
-  /// older algo version rendered every readiness driver, the whole breakdown,
-  /// tonight's need/bedtime/debt, chronotype, jetlag, regularity and
+  /// `getInsights` used to return `MetricSeriesStore.baseline('crossday')`
+  /// VERBATIM. No screen prints the artifact's date, so a rollup written weeks
+  /// ago under an older algo version rendered every readiness driver, the whole
+  /// breakdown, tonight's need/bedtime/debt, chronotype, jetlag, regularity and
   /// CTL/ATL/TSB with nothing on screen to say so. `_wakeFeatures`, twenty
   /// lines below, has always keyed its read on `kAlgoVersion`; this is that
   /// gate, for the artifact behind four screens.
@@ -615,7 +615,7 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<Map<String, dynamic>> getInsights() async {
     final cd = await _crossDayArtifact();
     if (cd == null) {
-      final row = await LocalDb.baseline('crossday_status');
+      final row = await MetricSeriesStore.baseline('crossday_status');
       Map? status;
       try {
         status = jsonDecode(row?['payload_json'] as String? ?? '{}') as Map;
@@ -787,7 +787,7 @@ class LocalRepositoryImpl extends LocalRepository {
         'note': ?env?['note'],
       };
     }
-    final have = (await LocalDb.metricSeries('skin_temp_adc')).length;
+    final have = (await MetricSeriesStore.series('skin_temp_adc')).length;
     return {'value': null, 'note': 'need_baseline:have=$have,need=3'};
   }
 
@@ -1292,18 +1292,18 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<num?> getMeasuredDaySteps(String date) async {
-    final r = await LocalDb.resolvedStepsForDay(date);
+    final r = await StepCoverageStore.resolvedStepsForDay(date);
     return r.total > 0 || r.hasPhoneCoverage ? r.total : null;
   }
 
   @override
   Future<Map<String, dynamic>> getDaySteps(String date) async {
-    final r = await LocalDb.resolvedStepsForDay(date);
+    final r = await StepCoverageStore.resolvedStepsForDay(date);
     // Only for naming: a span that sits inside a session gets that session's
     // name. Cheap — one indexed read over one day.
     final sessions = r.spans.isEmpty
         ? const <Map<String, dynamic>>[]
-        : await LocalDb.sessionsInRange(
+        : await SessionStore.inRange(
             _localMidnightSec(date),
             _localDayEndSec(date),
           );
@@ -1352,8 +1352,8 @@ class LocalRepositoryImpl extends LocalRepository {
             'end_ts': s.endTs,
             'steps': s.steps,
             'source': s.fromBand
-                ? LocalDb.kStepSourceBand
-                : LocalDb.kStepSourcePhone,
+                ? StepCoverageStore.kStepSourceBand
+                : StepCoverageStore.kStepSourcePhone,
             'activity': _sessionOver(sessions, s.startTs, s.endTs),
           },
       ],
@@ -1506,7 +1506,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<List<Map<String, num>>> getRecordedHr(int fromSec, int toSec) =>
-      LocalDb.recordedHrPerMinute(fromSec, toSec);
+      SessionStore.recordedHrPerMinute(fromSec, toSec);
 
   @override
   Future<Map<String, dynamic>> getDayTimeline(String date) async {
@@ -1553,13 +1553,13 @@ class LocalRepositoryImpl extends LocalRepository {
     }
 
     // Workouts + device events for that calendar day.
-    final sess = await LocalDb.sessionsInRange(dayStart, dayEnd);
+    final sess = await SessionStore.inRange(dayStart, dayEnd);
     // Bounded BY THE DAY, in SQL. This used to pull `unuploadedEvents(limit:
     // 2000)` — `ORDER BY ts ASC LIMIT 2000`, i.e. the OLDEST 2000 rows — and
     // then filter that page down to this day. Once `events` held more than 2000
     // rows the page could no longer reach recent days at all, so their markers
     // silently vanished from the timeline (the same oldest-N-vs-trailing-N
-    // shape as the metricSeries(limit:) outage).
+    // shape as the MetricSeriesStore.series(limit:) outage).
     final dayEvents = await LocalDb.eventsInRange(dayStart, dayEnd);
     final events = <Map<String, dynamic>>[
       for (final e in dayEvents)
@@ -1831,7 +1831,7 @@ class LocalRepositoryImpl extends LocalRepository {
         if (last != null) last + 60,
       ].reduce((a, b) => a > b ? a : b);
       try {
-        for (final m in await LocalDb.recordedHrPerMinute(
+        for (final m in await SessionStore.recordedHrPerMinute(
           from,
           nowSec < dayEnd ? nowSec + 1 : dayEnd,
         )) {
@@ -1843,13 +1843,13 @@ class LocalRepositoryImpl extends LocalRepository {
       return {'points': points};
     }
     final key = _trendKey(metric);
-    final rows = await LocalDb.metricSeries(key);
+    final rows = await MetricSeriesStore.series(key);
     // THE PIN WINS. getToday serves the frozen morning headline for readiness,
     // but metric_series is rewritten by every later re-derive of the same day —
     // which is the pin's whole reason for existing — so Readiness detail drew
     // 74 in the ring and 69 as today's point in the chart underneath it. One
     // day, one readiness number.
-    final pin = key == 'readiness' ? await LocalDb.frozenHeadline() : null;
+    final pin = key == 'readiness' ? await FrozenHeadlineStore.read() : null;
     final today = _todayLocalLabel();
     final points = [
       for (final r in rows)
@@ -1861,7 +1861,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (key == 'steps') {
       // Measured counts can change without a derive, including old dates.
       // Retained coverage also supplies days which never had a derived row.
-      final measured = await LocalDb.resolvedStepsByDay();
+      final measured = await StepCoverageStore.resolvedStepsByDay();
       final positions = <int, int>{
         for (var i = 0; i < points.length; i++) points[i]['t'] as int: i,
       };
@@ -1893,7 +1893,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // window is knowable ONLY through this derived key — nothing here
       // reconstructs it, and a day with no `worn_min` row is simply absent.
       'wear': [
-        for (final r in await LocalDb.metricSeries('worn_min'))
+        for (final r in await MetricSeriesStore.series('worn_min'))
           {'t': _dateToEpoch(r['date'] as String), 'v': r['value']},
       ],
       // L13 — WHERE THE MATHS CHANGED. The dates at which the algo version
@@ -1939,7 +1939,7 @@ class LocalRepositoryImpl extends LocalRepository {
     //
     // What used to be computed here and thrown away: `dayResultDayIdsDesc()`,
     // `daysWithSleepTst()` (json_valid + json_extract over every stored day
-    // bundle), seven `metricSeries` scans for personal records, a
+    // bundle), seven `MetricSeriesStore.series` scans for personal records, a
     // `recentDayResults(14)` bundle decode to check the resting-HR baseline's
     // trust status, two streak walks and the resting-HR drift. The screens that
     // displayed records and streaks are gone (see profile.dart), so every one
@@ -1949,7 +1949,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // The count itself is now done in SQL. It used to pull EVERY session row an
     // install had ever written — full payloads, sorted by start_ts — across the
     // platform channel to add up one integer, while the tab was opening.
-    return {'workouts_tracked': await LocalDb.finishedSessionCount()};
+    return {'workouts_tracked': await SessionStore.finishedCount()};
   }
 
   // ── workouts (manual / live / auto) — local sessions store ──────────────────
@@ -2006,7 +2006,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final now = DateTime.now();
     final nowSec = now.millisecondsSinceEpoch ~/ 1000;
     final fromTs = _rangeFromSec(range, now);
-    final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
+    final rows = await SessionStore.inRange(fromTs, nowSec);
     final workouts = [
       for (final r in rows)
         _workoutOf(await _movementScoredRow(await _boundStoredSessionTrace(r))),
@@ -2017,7 +2017,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // "no data" (avg_hr == 0) even when the window is full of worn HR.
     try {
       final age = _profileAge();
-      final stats = await LocalDb.sessionHrStats(
+      final stats = await SessionStore.hrStats(
         fromTs,
         nowSec,
         maxHrCeiling: hrCeilingForAge(age),
@@ -2026,7 +2026,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // Spike-suppressed max/min per session (issue #127): smooth the raw 1 Hz
       // over one batched join so the list agrees with getWorkout's on-read
       // recompute.
-      final rawBySession = await LocalDb.sessionHrSamplesBySession(
+      final rawBySession = await SessionStore.hrSamplesBySession(
         fromTs,
         nowSec,
       );
@@ -2042,7 +2042,7 @@ class LocalRepositoryImpl extends LocalRepository {
           if (clock.pauses.isNotEmpty || clock.pausedAt != null) {
             final active = _activeHr(
               row,
-              await LocalDb.hrSamplesInRange(
+              await SessionStore.hrSamplesInRange(
                 (row['start_ts'] as num).toInt(),
                 (row['end_ts'] as num?)?.toInt() ?? nowSec,
               ),
@@ -2130,7 +2130,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<Map<String, dynamic>> getWorkout(String id) async {
-    final stored = await LocalDb.session(id);
+    final stored = await SessionStore.byId(id);
     if (stored == null) return const {};
     // Reconcile the live tallies against the substrate BEFORE projecting the
     // row (issue #206) — a session the app slept through stores a strain built
@@ -2162,7 +2162,7 @@ class LocalRepositoryImpl extends LocalRepository {
           rescored.hrRows ??
           _activeHr(
             rescored.row,
-            await LocalDb.hrSamplesInRange(startTs, endTs),
+            await SessionStore.hrSamplesInRange(startTs, endTs),
           );
       if (hrRows.isNotEmpty) {
         final ts = _activeHrTimes(rescored.row, hrRows);
@@ -2358,7 +2358,7 @@ class LocalRepositoryImpl extends LocalRepository {
     try {
       return _ZoneAnchors(
         observedCeilingBpm: (await _observedCeiling())?.bpm,
-        restingHrHistory: await LocalDb.trailingSeriesValues('rhr', 28),
+        restingHrHistory: await MetricSeriesStore.trailingValues('rhr', 28),
       );
     } catch (_) {
       return const _ZoneAnchors();
@@ -2377,7 +2377,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// All-time, not a trailing window: this is "highest we've seen", and the
   /// date is rendered beside it so an old one is visible rather than anonymous.
   Future<_ObservedCeiling?> _observedCeiling() async {
-    final top = await LocalDb.observedHrCeiling();
+    final top = await SessionStore.observedHrCeiling();
     if (top == null) return null;
     // The session + hold behind it live in that day's own bundle envelope —
     // one extra day read, only on the day that actually set the ceiling.
@@ -2425,7 +2425,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// Post-end HR recovery curve [{sec, drop}] at 60/120/180 s: the drop from
   /// the end-of-effort HR (median of the last 15 s) to the HR around each mark.
   Future<List<Map<String, num>>> _recoveryCurve(int endTs) async {
-    final rows = await LocalDb.hrSamplesInRange(endTs - 15, endTs + 190);
+    final rows = await SessionStore.hrSamplesInRange(endTs - 15, endTs + 190);
     if (rows.isEmpty) return const [];
     final endWindow = <int>[];
     final post = <int, int>{}; // ts → hr
@@ -2506,11 +2506,11 @@ class LocalRepositoryImpl extends LocalRepository {
   int? _profileAge() => (getProfileMap()?['age'] as num?)?.round();
 
   @override
-  Future<void> deleteWorkout(String id) async => LocalDb.deleteSession(id);
+  Future<void> deleteWorkout(String id) async => SessionStore.delete(id);
 
   @override
   Future<void> setWorkoutPrivate(String id, bool private) async {
-    await LocalDb.setSessionPrivate(id, private);
+    await SessionStore.setPrivate(id, private);
     onSessionChanged?.call();
   }
 
@@ -2518,7 +2518,7 @@ class LocalRepositoryImpl extends LocalRepository {
   Future<List<SessionSpan>> savedSessionSpans() async {
     // Everything ever logged — the overlap check has to see a session from any
     // date the athlete might be back-filling into, not just a recent window.
-    final rows = await LocalDb.sessionsInRange(0, 1 << 40);
+    final rows = await SessionStore.inRange(0, 1 << 40);
     return [
       for (final r in rows)
         if (r['id'] is String && r['start_ts'] is num && r['end_ts'] is num)
@@ -2551,7 +2551,7 @@ class LocalRepositoryImpl extends LocalRepository {
     required int startTs,
     required int endTs,
   }) async {
-    final existing = await LocalDb.session(id);
+    final existing = await SessionStore.byId(id);
     if (existing == null) {
       throw StateError('setWorkoutWindow: no session $id');
     }
@@ -2576,7 +2576,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// Shared writer for both user-timed paths: score the window from the 1 Hz
   /// substrate and persist. An auto-detect suggestion the window covers needs
-  /// no retiring: `LocalDb.activeWorkoutSuggestions` hides any suggestion a
+  /// no retiring: `WorkoutSuggestionStore.active` hides any suggestion a
   /// saved session overlaps.
   ///
   /// Deliberately does NOT force a day re-derive. Sessions do not feed
@@ -2607,7 +2607,7 @@ class LocalRepositoryImpl extends LocalRepository {
     );
     if (invalid != null) throw ManualWindowException(invalid);
 
-    final hrRows = await LocalDb.hrSamplesInRange(startTs, endTs);
+    final hrRows = await SessionStore.hrSamplesInRange(startTs, endTs);
     final hrTs = [for (final e in hrRows) (e['rec_ts'] as num).toInt()];
     final hrBpm = [for (final e in hrRows) (e['hr'] as num).toInt()];
 
@@ -2657,7 +2657,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // trace all band on the SAME ceiling this write did — `putSession` is
     // INSERT-OR-REPLACE, so omitting it would blank an edit's existing stamp.
     row['device_family'] = deviceFamily;
-    await LocalDb.putSession(row);
+    await SessionStore.put(row);
     onSessionChanged?.call();
 
     return {
@@ -2740,7 +2740,7 @@ class LocalRepositoryImpl extends LocalRepository {
     if (changed > 0) onSessionChanged?.call();
     return changed > 0
         ? {...row, ...clean}
-        : await LocalDb.session(row['id'] as String) ?? row;
+        : await SessionStore.byId(row['id'] as String) ?? row;
   }
 
   WorkoutClock _clockFor(Map<String, dynamic> row) => WorkoutClock.read(
@@ -2815,7 +2815,7 @@ class LocalRepositoryImpl extends LocalRepository {
         where: 'id = ? AND start_ts = ? AND end_ts = ?',
         whereArgs: [c.id, row['start_ts'], row['end_ts']],
       );
-      if (written == 0) return await LocalDb.session(c.id) ?? row;
+      if (written == 0) return await SessionStore.byId(c.id) ?? row;
       onSessionChanged?.call();
     }
     return {
@@ -2854,7 +2854,7 @@ class LocalRepositoryImpl extends LocalRepository {
       final clock = _clockFor(row);
       final hrRows = _activeHr(
         row,
-        await LocalDb.hrSamplesInRange(startTs, endTs),
+        await SessionStore.hrSamplesInRange(startTs, endTs),
       );
       if (hrRows.isEmpty) {
         return (row: row, hrRows: hrRows, zoneMinutesRebinned: true);
@@ -2938,7 +2938,7 @@ class LocalRepositoryImpl extends LocalRepository {
       // reverted — old start/end/status written back over the new ones. Re-read
       // and bail if the row moved under us; the next sweep (or the next open)
       // scores the new window.
-      final current = await LocalDb.session(id);
+      final current = await SessionStore.byId(id);
       if (current == null ||
           (current['start_ts'] as num?)?.toInt() != startTs ||
           (current['end_ts'] as num?)?.toInt() != endTs ||
@@ -3018,7 +3018,7 @@ class LocalRepositoryImpl extends LocalRepository {
         // marker. Preparation/write refusal must leave this pass retryable.
         stagedSplits = await _prepareKmSplits(id, hrRows);
       }
-      final written = await LocalDb.setSessionScores(
+      final written = await SessionStore.setScores(
         id,
         strain: merged.strain,
         calories: primaryCalories,
@@ -3037,7 +3037,7 @@ class LocalRepositoryImpl extends LocalRepository {
       );
       if (written == 0) {
         return (
-          row: await LocalDb.session(id) ?? row,
+          row: await SessionStore.byId(id) ?? row,
           hrRows: null,
           zoneMinutesRebinned: true,
         );
@@ -3190,14 +3190,14 @@ class LocalRepositoryImpl extends LocalRepository {
       // Local-midnight bound, not `now - n * 86400`: a DST day is 23 or 25
       // hours, so a flat day-length silently moves the window by an hour.
       final fromTs = localDayStartSec(_rangeSinceLabel("${sinceDays}d")!)!;
-      final rows = await LocalDb.sessionsInRange(fromTs, nowSec);
+      final rows = await SessionStore.inRange(fromTs, nowSec);
       // Where the durable record frontier stands NOW. A finished session whose
       // window sits behind it has all the substrate it is ever going to get.
       // Falls back to the newest decoded row so an import-only install (no
       // band, so no `rec_ts_hw` cursor) still gets the skip rather than
       // re-scanning every session's window on every pass.
       final frontier =
-          await LocalDb.getCursorInt('rec_ts_hw') ??
+          await CursorStore.readInt('rec_ts_hw') ??
           await LocalDb.lastDecodedRecTs() ??
           0;
       final seen = <(String, int, int, String?)>{};
@@ -3260,7 +3260,7 @@ class LocalRepositoryImpl extends LocalRepository {
     try {
       // 'rhr' is the `metric_series` key the derivation engine writes nightly
       // resting HR under (see _BaselineHistoryCache.keys).
-      final vals = await LocalDb.trailingSeriesValues('rhr', 7);
+      final vals = await MetricSeriesStore.trailingValues('rhr', 7);
       if (vals.isEmpty) return null;
       return vals.last;
     } catch (_) {
@@ -3281,8 +3281,8 @@ class LocalRepositoryImpl extends LocalRepository {
     String id,
     List<Map<String, dynamic>> hrRows,
   ) async {
-    if (!await LocalDb.sessionHasRoute(id)) return null;
-    final rows = await LocalDb.routePoints(id);
+    if (!await WorkoutRouteStore.hasRoute(id)) return null;
+    final rows = await WorkoutRouteStore.points(id);
     if (rows.length < 2) return null;
     final points = [for (final r in rows) RoutePoint.fromRow(r)];
     final hr = [
@@ -3345,7 +3345,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   @override
   Future<WorkoutRoute?> getWorkoutRoute(String id) async {
-    final rows = await LocalDb.routePoints(id);
+    final rows = await WorkoutRouteStore.points(id);
     if (rows.length < 2) return null;
     var points = [for (final r in rows) RoutePoint.fromRow(r)];
 
@@ -3359,7 +3359,7 @@ class LocalRepositoryImpl extends LocalRepository {
     //
     // Widening cannot conjure GPS that was never recorded, so the route simply
     // stays as long as it is — correct, and honest about it.
-    final session = await LocalDb.session(id);
+    final session = await SessionStore.byId(id);
     final startTs = (session?['start_ts'] as num?)?.toInt();
     final endTs = (session?['end_ts'] as num?)?.toInt();
     if (startTs != null && endTs != null && endTs > startTs) {
@@ -3387,7 +3387,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // colouring and per-split average HR.
     final fromTs = (points.first.tsMs ~/ 1000) - 5;
     final toTs = (points.last.tsMs ~/ 1000) + 5;
-    final hrRows = await LocalDb.hrSamplesInRange(fromTs, toTs);
+    final hrRows = await SessionStore.hrSamplesInRange(fromTs, toTs);
     final hr = [
       for (final r in hrRows)
         HrSample(
@@ -3708,7 +3708,7 @@ class LocalRepositoryImpl extends LocalRepository {
   // ── small series helpers ─────────────────────────────────────────────────────
 
   Future<double?> _seriesMean(String key) async {
-    final vs = await LocalDb.trailingSeriesValues(key, 28);
+    final vs = await MetricSeriesStore.trailingValues(key, 28);
     if (vs.isEmpty) return null;
     return vs.reduce((a, b) => a + b) / vs.length;
   }
@@ -3721,11 +3721,11 @@ class LocalRepositoryImpl extends LocalRepository {
   @override
   Future<Map<String, dynamic>> getZones() async {
     final ceiling = await _observedCeiling();
-    final rhrHistory = await LocalDb.trailingSeriesValues('rhr', 28);
+    final rhrHistory = await MetricSeriesStore.trailingValues('rhr', 28);
     final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     // One read, two jobs: which strap these edges belong to, and the 28-day
     // distribution below.
-    final recent = await LocalDb.sessionsInRange(nowSec - 28 * 86400, nowSec);
+    final recent = await SessionStore.inRange(nowSec - 28 * 86400, nowSec);
     // The strap these edges belong to — from the most recent session that
     // carries one, then from the day's own 1 Hz rows while they still exist.
     // Sessions outlive the 3-day raw retention, so this still answers for a
@@ -3737,7 +3737,7 @@ class LocalRepositoryImpl extends LocalRepository {
     final todayBundle = await _bundleForDate(todayLabel());
     final family =
         _familyOfSessions(recent) ??
-        await LocalDb.latestSessionDeviceFamily() ??
+        await SessionStore.latestDeviceFamily() ??
         todayBundle?['device_family'] as String?;
     // WHY there is no measured ceiling — but ONLY the reason that holds across
     // the whole history, because that is what an all-time max is taken over.
@@ -3848,7 +3848,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// The family stamped on the most recent of [rows] that carries one (they
   /// arrive `start_ts DESC`) — the free answer when the caller has already
-  /// read the window. Falls through to [LocalDb.latestSessionDeviceFamily] at
+  /// read the window. Falls through to [SessionStore.latestDeviceFamily] at
   /// the call site when the window holds none.
   static String? _familyOfSessions(List<Map<String, dynamic>> rows) {
     for (final r in rows) {

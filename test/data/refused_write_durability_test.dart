@@ -134,7 +134,7 @@ void main() {
           'sex': 'm',
         },
       });
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         '${CalculationStore.prefix}${ProfileHistory.key}',
         originalHistory,
       );
@@ -144,7 +144,7 @@ void main() {
       addTearDown(app.dispose);
       await expectLater(app.updateProfile({'weight_kg': 71}), throwsStateError);
       expect(
-        (await LocalDb.baseline(
+        (await MetricSeriesStore.baseline(
           '${CalculationStore.prefix}${ProfileHistory.key}',
         ))?['payload_json'],
         originalHistory,
@@ -170,7 +170,7 @@ void main() {
         await Future.wait(reads);
         expect(await CalculationStore.read(key), isNull);
         expect(
-          await LocalDb.baseline('${CalculationStore.prefix}$key'),
+          await MetricSeriesStore.baseline('${CalculationStore.prefix}$key'),
           isNull,
         );
       }
@@ -191,7 +191,10 @@ void main() {
       await reset;
       await Future.wait(reads);
       expect(await CalculationStore.read(key), isNull);
-      expect(await LocalDb.baseline('${CalculationStore.prefix}$key'), isNull);
+      expect(
+        await MetricSeriesStore.baseline('${CalculationStore.prefix}$key'),
+        isNull,
+      );
     },
   );
 
@@ -230,7 +233,7 @@ void main() {
   test(
     'calculation read mirror cannot complete after a successful removal',
     () async {
-      await LocalDb.putBaseline(
+      await MetricSeriesStore.putBaseline(
         '${CalculationStore.prefix}synthetic.ordered',
         'retained',
       );

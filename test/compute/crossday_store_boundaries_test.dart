@@ -18,7 +18,9 @@ void main() {
   String label(int ago) =>
       dayLabelOf(DateTime(calendar.year, calendar.month, calendar.day - ago));
   Future<Map> baseline(String key) async =>
-      jsonDecode((await LocalDb.baseline(key))!['payload_json'] as String)
+      jsonDecode(
+            (await MetricSeriesStore.baseline(key))!['payload_json'] as String,
+          )
           as Map;
   Future<void> nap(String date) async {
     final at = localDayStartSec(date)! + 14 * 3600;
@@ -87,7 +89,7 @@ void main() {
         2,
         reason: 'Old/future corrections are outside the current rollup',
       );
-      expect(await LocalDb.baseline('crossday'), isNull);
+      expect(await MetricSeriesStore.baseline('crossday'), isNull);
       expect(await engine.crossDayInputs(), isEmpty);
       expect(await LocalDb.dayResult(label(0)), isNull);
     },
@@ -106,7 +108,7 @@ void main() {
         for (var i = 14; i < 24; i++) {
           final start = localDayStartSec(label(39 - i))! + 10 * 3600;
           for (final live in [false, true]) {
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': 'authored-$i-$live',
               'start_ts': start,
               'end_ts': live ? null : start + 1800,

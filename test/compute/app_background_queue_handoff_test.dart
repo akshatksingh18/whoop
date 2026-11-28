@@ -19,11 +19,11 @@ void main() {
         final app = AppState.forTesting(isIOS: true);
         var disposed = false;
         try {
-          await LocalDb.putMetricSeriesValue('2021-04-06', 'steps', 1234);
+          await MetricSeriesStore.putValue('2021-04-06', 'steps', 1234);
           final db = await LocalDb.instance;
           final observations = await db.query('metric_series');
           await t.runAsync(app.refreshForeground);
-          final queued = (await t.runAsync(() => LocalDb.computeJobs()))!;
+          final queued = (await t.runAsync(() => ComputeJobStore.jobs()))!;
           expect(queued, hasLength(1));
           expect(queued.single['state'], 'queued');
           expect(app.derivePending, true);
@@ -41,18 +41,18 @@ void main() {
             reason: 'An idle real engine has no detached calculation to cancel',
           );
           expect(app.deriving, false);
-          expect(await t.runAsync(() => LocalDb.computeJobs()), queued);
+          expect(await t.runAsync(() => ComputeJobStore.jobs()), queued);
           if (resume) {
             await t.runAsync(app.openSession);
             expect(app.derivePending, true);
             expect(app.deriving, false);
-            expect(await t.runAsync(() => LocalDb.computeJobs()), queued);
+            expect(await t.runAsync(() => ComputeJobStore.jobs()), queued);
             // Cancel the newly armed settle timer before any worker can start.
           }
           app.dispose();
           disposed = true;
           await t.pump(const Duration(minutes: 1));
-          expect(await t.runAsync(() => LocalDb.computeJobs()), queued);
+          expect(await t.runAsync(() => ComputeJobStore.jobs()), queued);
           expect(
             await t.runAsync(() => db.query('metric_series')),
             observations,

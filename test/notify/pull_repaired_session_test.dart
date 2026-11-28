@@ -43,7 +43,7 @@ void main() {
       notifications.presentSink =
           (_, {bool allowPermissionPrompt = true}) async => false;
       try {
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'authored-strength',
           'start_ts': start,
           'end_ts': end,
@@ -52,7 +52,7 @@ void main() {
           'source': 'manual',
           'created_at': start * 1000,
         });
-        final before = (await LocalDb.session('authored-strength'))!;
+        final before = (await SessionStore.byId('authored-strength'))!;
         expect(before['trace_samples'], isNull);
         final raws = <RawRecord>[];
         final samples = <Sample>[];
@@ -79,7 +79,7 @@ void main() {
           );
         }
         await LocalDb.upsertDevice(adapterId: 'gen4');
-        await LocalDb.commitSyncBatch(raws, samples, deviceFamily: 'gen4');
+        await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
         const report = '[derive] rescored 1 session(s) from substrate';
         final revision = app.insightsRevision.value;
         await app.pullRefresh(timeout: const Duration(seconds: 75));
@@ -90,7 +90,7 @@ void main() {
             DateTime.now().isBefore(deadline)) {
           await Future<void>.delayed(const Duration(milliseconds: 100));
         }
-        final saved = (await LocalDb.session('authored-strength'))!;
+        final saved = (await SessionStore.byId('authored-strength'))!;
         expect(app.deriving || app.derivePending, isFalse);
         expect(
           app.logLines.where((line) => line.contains(report)),

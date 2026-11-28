@@ -108,7 +108,7 @@ void main() {
           if (reset) {
             expect(await JournalStore.entries(date: day), isEmpty);
             expect(
-              await LocalDb.baseline('calculation:${StepGoals.key}'),
+              await MetricSeriesStore.baseline('calculation:${StepGoals.key}'),
               isNull,
             );
             expect(store.values[HeldMirror.key], isNull);

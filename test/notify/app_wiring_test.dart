@@ -83,7 +83,7 @@ void main() {
         expect(app.lastSynced!.rrIntervalsMs, isEmpty);
         expect(await db.query('samples'), before);
         expect(await db.query('decoded_onehz'), isEmpty);
-        expect(await LocalDb.getCursor('rec_ts_hw'), isNull);
+        expect(await CursorStore.read('rec_ts_hw'), isNull);
         expect(
           app.engine.deriveDataStaleness(),
           greaterThan(const Duration(days: 365)),
@@ -175,15 +175,15 @@ void main() {
       for (final table in ['raw_records', 'raw_archive', 'decoded_onehz']) {
         if (names.contains(table)) expect(await db.query(table), isEmpty);
       }
-      expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull);
-      await LocalDb.setCursor('rec_ts_hw', '$ts');
+      expect(await CursorStore.readInt('rec_ts_hw'), isNull);
+      await CursorStore.write('rec_ts_hw', '$ts');
       final before = app.insightsRevision.value;
       app.engine.onDataStored!();
       for (var i = 0; i < 100 && app.insightsRevision.value == before; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 10));
       }
       expect(app.insightsRevision.value, greaterThan(before));
-      expect(await LocalDb.getCursorInt('rec_ts_hw'), ts);
+      expect(await CursorStore.readInt('rec_ts_hw'), ts);
       expect(app.engine.deriveDataStaleness().inSeconds, lessThan(5));
       expect(await IosBleRestore.onWake!(), RestoreWakeOutcome.notHandled);
     } finally {

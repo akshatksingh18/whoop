@@ -43,7 +43,7 @@ void main() {
                   )
                 : const Profile();
             final from = DateTime.now().subtract(const Duration(minutes: 20));
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': id,
               'start_ts': from.millisecondsSinceEpoch ~/ 1000,
               'type': type,
@@ -55,7 +55,7 @@ void main() {
               'created_at': 1,
             });
             await WorkoutClock(id, from, profile: profile).persist();
-            await LocalDb.putSession({
+            await SessionStore.put({
               'id': 'authored-history',
               'start_ts': 1617724800,
               'end_ts': 1617726600,
@@ -68,7 +68,7 @@ void main() {
               'strain': 4.2,
               'avg_hr': 110,
             });
-            await LocalDb.setCursor('authored-recovery', 'retain');
+            await CursorStore.write('authored-recovery', 'retain');
             final db = await LocalDb.instance;
             final history = await db.query(
               'sessions',
@@ -76,7 +76,7 @@ void main() {
               whereArgs: ['authored-history'],
             );
             final cursors = await db.query('sync_cursor');
-            final original = await LocalDb.session(id);
+            final original = await SessionStore.byId(id);
             final app = AppState.forTesting()..user = profile.toMap();
             app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
             addTearDown(app.dispose);
@@ -89,8 +89,8 @@ void main() {
               throwsA(isA<DatabaseException>()),
             );
             expect(app.activeWorkout, isNull);
-            expect(await LocalDb.session(attempted), isNull);
-            expect(await LocalDb.session(id), original);
+            expect(await SessionStore.byId(attempted), isNull);
+            expect(await SessionStore.byId(id), original);
 
             // Run the actual startup continuation from the surviving stored row
             // and clock. No private failed-future or active-workout field is set.
@@ -105,7 +105,7 @@ void main() {
               ),
               false,
             );
-            expect(await LocalDb.session('must-not-replace'), isNull);
+            expect(await SessionStore.byId('must-not-replace'), isNull);
             if (refuseFinish) {
               await db.execute(
                 "CREATE TRIGGER authored_finish_refusal BEFORE INSERT ON sessions "
@@ -118,7 +118,7 @@ void main() {
               expect(app.activeWorkout!.workoutId, id);
               expect(WorkoutClock.current!.end, isNotNull);
               expect(WorkoutClock.current!.pendingSession, isNotNull);
-              expect(await LocalDb.session(id), original);
+              expect(await SessionStore.byId(id), original);
               await db.execute('DROP TRIGGER authored_finish_refusal');
             }
             final pending = WorkoutClock.current!.pendingSession == null
@@ -135,7 +135,7 @@ void main() {
               ),
               true,
             );
-            final saved = (await LocalDb.session(id))!;
+            final saved = (await SessionStore.byId(id))!;
             expect(saved['status'], 'done');
             expect(saved['start_ts'], original!['start_ts']);
             expect(
@@ -161,7 +161,7 @@ void main() {
               }
             }
             await app.stopWorkout();
-            expect(await LocalDb.session(id), saved);
+            expect(await SessionStore.byId(id), saved);
             expect(
               await db.query(
                 'sessions',
@@ -171,7 +171,7 @@ void main() {
               history,
             );
             expect(await db.query('sync_cursor'), cursors);
-            expect(await LocalDb.session(attempted), isNull);
+            expect(await SessionStore.byId(attempted), isNull);
             expect(await db.query('sessions'), hasLength(2));
           },
         );

@@ -158,7 +158,7 @@ class PhonePedometer {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(_kImportedPurged) == true) return;
-      final n = await LocalDb.clearPhoneCoverage();
+      final n = await StepCoverageStore.clearPhone();
       await prefs.setBool(_kImportedPurged, true);
       debugPrint('[phone_pedometer] dropped $n health-store step rows');
     } catch (e) {
@@ -189,7 +189,7 @@ class PhonePedometer {
   ///   * `null` — the sensor is unavailable, denied, or the query itself failed.
   ///
   /// So a null read is a real failure, and it must not be persisted:
-  /// [LocalDb.replacePhoneCoverageForDay] is delete-then-insert, so banking a
+  /// [StepCoverageStore.replacePhoneForDay] is delete-then-insert, so banking a
   /// short read would LOWER a previously complete day. And because
   /// [LocalDb.liveStepsForDay] prefers phone rows outright, the truncated total
   /// would also keep suppressing the band fallback.
@@ -209,7 +209,7 @@ class PhonePedometer {
       final gait = await db.rawQuery(
         'SELECT start_ts,end_ts FROM live_coverage WHERE source != ? AND start_ts < ? AND end_ts > ?',
         [
-          LocalDb.kStepSourcePhone,
+          StepCoverageStore.kStepSourcePhone,
           dayEnd.millisecondsSinceEpoch ~/ 1000,
           dayStartLocal.millisecondsSinceEpoch ~/ 1000,
         ],
@@ -218,7 +218,7 @@ class PhonePedometer {
         'live_coverage',
         columns: ['start_ts', 'end_ts', 'steps', 'distance_m'],
         where: 'day = ? AND source = ?',
-        whereArgs: [dayId, LocalDb.kStepSourcePhone],
+        whereArgs: [dayId, StepCoverageStore.kStepSourcePhone],
       );
       final cached = {
         for (final r in existing)
@@ -399,7 +399,7 @@ class PhonePedometer {
       // banked value costs nothing. Returning null rather than 0 is the honest
       // report: this day was NOT confirmed, so it must not count toward
       // `daysRead` in the diagnostic the Profile screen shows.
-      if (total == 0 && await LocalDb.phoneStepsForDay(dayId) > 0) {
+      if (total == 0 && await StepCoverageStore.phoneStepsForDay(dayId) > 0) {
         debugPrint(
           '[phone_pedometer] $dayId read all-zero over a day that '
           'already holds phone steps — keeping the banked day',
@@ -407,7 +407,7 @@ class PhonePedometer {
         return null;
       }
 
-      await LocalDb.replacePhoneCoverageForDay(
+      await StepCoverageStore.replacePhoneForDay(
         dayId,
         windows,
         distances: distances,

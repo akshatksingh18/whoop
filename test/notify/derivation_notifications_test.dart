@@ -62,13 +62,14 @@ void main() {
   };
   Future<void> run(Map<String, dynamic>? rollup) async {
     if (rollup != null) {
-      await LocalDb.putBaseline('crossday', jsonEncode(rollup));
+      await MetricSeriesStore.putBaseline('crossday', jsonEncode(rollup));
     }
     await engine.finalizeImport(const Profile());
     // No derived nights are fabricated to get into notification orchestration.
     expect(
       jsonDecode(
-        (await LocalDb.baseline('crossday_status'))!['payload_json'] as String,
+        (await MetricSeriesStore.baseline('crossday_status'))!['payload_json']
+            as String,
       )['kind'],
       'needs_history',
     );
@@ -85,7 +86,7 @@ void main() {
       'COV-46 import finalization emits the shared $kind finding once',
       () async {
         if (kind == FindingKind.lowReadiness) {
-          await LocalDb.putMetricSeriesValue(today, 'readiness', 20);
+          await MetricSeriesStore.putValue(today, 'readiness', 20);
         }
         final rollup = bundle(
           illness: kind == FindingKind.illness,
@@ -113,7 +114,7 @@ void main() {
   test(
     'COV-46 correlated findings aggregate and medical deescalation stays silent',
     () async {
-      await LocalDb.putMetricSeriesValue(today, 'readiness', 20);
+      await MetricSeriesStore.putValue(today, 'readiness', 20);
       await run(bundle(illness: true, anomaly: true, temp: true));
       expect(events.single.title, '4 things to look at');
       for (final kind in [
@@ -133,7 +134,7 @@ void main() {
   test(
     'COV-46 low readiness does not consume a later medical escalation',
     () async {
-      await LocalDb.putMetricSeriesValue(today, 'readiness', 20);
+      await MetricSeriesStore.putValue(today, 'readiness', 20);
       await run(bundle());
       expect(events.single.dedupeKey, '$today:exception');
       await run(bundle(illness: true));
@@ -208,8 +209,8 @@ void main() {
       await run({
         'illness': {'state': 'red'},
       });
-      await LocalDb.putMetricSeriesValue(today, 'readiness', 26);
-      await LocalDb.putMetricSeriesValue(today, 'irregular_rhythm', 1);
+      await MetricSeriesStore.putValue(today, 'readiness', 26);
+      await MetricSeriesStore.putValue(today, 'irregular_rhythm', 1);
       await run(bundle());
       expect(events, isEmpty);
       expect(await fired.hasFired('$today:exception'), false);
@@ -233,7 +234,7 @@ void main() {
   test(
     'COV-46 muting findings changes only the delivered aggregate and dedupe class',
     () async {
-      await LocalDb.putMetricSeriesValue(today, 'readiness', 20);
+      await MetricSeriesStore.putValue(today, 'readiness', 20);
       await const NotificationPrefs(
         quietEnabled: false,
         mutedFindings: {'illness', 'anomaly', 'tempElevated', 'lowReadiness'},
@@ -258,7 +259,8 @@ void main() {
       expect(events.last.title, '4 things to look at');
       expect(
         jsonDecode(
-          (await LocalDb.baseline('crossday'))!['payload_json'] as String,
+          (await MetricSeriesStore.baseline('crossday'))!['payload_json']
+              as String,
         ),
         rollup,
       );

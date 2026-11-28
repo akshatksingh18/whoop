@@ -22,7 +22,7 @@ void main() {
         const oldToken = '0011223344556677';
         const newToken = '8172635445362718';
         final db = await LocalDb.instance;
-        await LocalDb.commitSyncBatch(
+        await SyncLedgerStore.commitBatch(
           [
             RawRecord(
               counter: 40,
@@ -58,7 +58,7 @@ void main() {
         void install() => engine.debugInstallFakeLink(
           band: p.BandProfile.gen5,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -72,7 +72,7 @@ void main() {
             writes.add(List.of(inner));
             if (inner[2] == p.Cmd.historicalDataResult && inner[3] == 1) {
               expect(await db.query('decoded_onehz'), hasLength(2));
-              expect(await LocalDb.getCursor('strap_trim'), newToken);
+              expect(await CursorStore.read('strap_trim'), newToken);
             }
             return true;
           },
@@ -105,8 +105,8 @@ void main() {
           expect(await db.query('decoded_onehz'), savedRows);
           expect(await db.query('decoded_rr'), savedBeats);
           expect(await db.query('samples'), savedHeaders);
-          expect(await LocalDb.getCursor('strap_trim'), oldToken);
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), ts - 1);
+          expect(await CursorStore.read('strap_trim'), oldToken);
+          expect(await CursorStore.readInt('rec_ts_hw'), ts - 1);
           await engine.disconnect();
           await db.execute('DROP TRIGGER authored_short_refusal');
           writes.clear();
@@ -130,8 +130,8 @@ void main() {
           );
           expect(await db.query('decoded_onehz'), hasLength(2));
           expect(await db.query('decoded_rr'), savedBeats);
-          expect(await LocalDb.getCursor('strap_trim'), newToken);
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), ts);
+          expect(await CursorStore.read('strap_trim'), newToken);
+          expect(await CursorStore.readInt('rec_ts_hw'), ts);
         } finally {
           await db.execute('DROP TRIGGER IF EXISTS authored_short_refusal');
           await engine.disconnect();

@@ -46,7 +46,7 @@ class CalculationStore {
 
   static Future<String?> read(String key) => _serial(() => _read(key));
   static Future<String?> _read(String key) async {
-    final row = await LocalDb.baseline('$prefix$key');
+    final row = await MetricSeriesStore.baseline('$prefix$key');
     String? cached;
     SharedPreferences? p;
     try {
@@ -55,7 +55,7 @@ class CalculationStore {
     } catch (_) {}
     final value = row?['payload_json'] as String? ?? cached;
     if (row == null && value != null) {
-      await LocalDb.putBaseline('$prefix$key', value);
+      await MetricSeriesStore.putBaseline('$prefix$key', value);
     }
     if (value != null && p != null && cached != value) {
       try {
@@ -68,7 +68,7 @@ class CalculationStore {
   static Future<void> write(String key, String value) =>
       _serial(() => _write(key, value));
   static Future<void> _write(String key, String value) async {
-    await LocalDb.putBaseline('$prefix$key', value);
+    await MetricSeriesStore.putBaseline('$prefix$key', value);
     // The committed database is authoritative. A failed cache mirror must not
     // report a rolled-back history/configuration write or invite duplicates.
     try {

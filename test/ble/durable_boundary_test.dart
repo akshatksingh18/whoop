@@ -107,7 +107,7 @@ void main() {
         void install() => engine.debugInstallFakeLink(
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -119,7 +119,7 @@ void main() {
             writes.add(List.of(inner));
             if (inner[2] == proto.Cmd.historicalDataResult) {
               expect(await db.query('decoded_onehz'), hasLength(1));
-              expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+              expect(await CursorStore.read('strap_trim'), _tokenHex);
               return !refusing;
             }
             if (inner[2] == proto.Cmd.abortHistoricalTransmits) {
@@ -160,7 +160,7 @@ void main() {
           expect(jsonDecode(row['meta_json'] as String)['ack_failures'], 1);
           final saved = await db.query('decoded_onehz');
           expect(saved, hasLength(1));
-          expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+          expect(await CursorStore.read('strap_trim'), _tokenHex);
           final count = writes.length;
           for (final marker in [
             historyStart(),
@@ -210,7 +210,7 @@ void main() {
             hasLength(1),
           );
           expect(writes.single.sublist(3, 12), [1, ..._token]);
-          expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+          expect(await CursorStore.read('strap_trim'), _tokenHex);
         } finally {
           await engine.disconnect();
         }
@@ -229,7 +229,7 @@ void main() {
         void connect() => engine.debugInstallFakeLink(
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -242,7 +242,7 @@ void main() {
             if (inner[2] == proto.Cmd.abortHistoricalTransmits) aborts++;
             if (inner[2] == proto.Cmd.historicalDataResult) {
               expect(await db.query('decoded_onehz'), hasLength(1));
-              expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+              expect(await CursorStore.read('strap_trim'), _tokenHex);
               return !refuseAck;
             }
             return true;
@@ -349,7 +349,7 @@ void main() {
         engine.debugInstallFakeLink(
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -435,7 +435,7 @@ void main() {
         engine.debugInstallFakeLink(
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -463,7 +463,7 @@ void main() {
           );
           expect(writes, isEmpty);
           expect(await db.query('decoded_onehz'), isEmpty);
-          expect(await LocalDb.getCursor('strap_trim'), isNull);
+          expect(await CursorStore.read('strap_trim'), isNull);
           await db.execute('DROP TRIGGER refuse_synthetic_tail');
           // No new sensor frame: the failed tail itself must still be present.
           rx(historyStart());
@@ -471,8 +471,8 @@ void main() {
           await until(() => writes.isNotEmpty);
           expect(writes.single.sublist(3), [1, ..._token]);
           expect(await db.query('decoded_onehz'), hasLength(1));
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), _ts);
-          expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+          expect(await CursorStore.readInt('rec_ts_hw'), _ts);
+          expect(await CursorStore.read('strap_trim'), _tokenHex);
         } finally {
           await engine.disconnect();
         }
@@ -510,7 +510,7 @@ void main() {
             onCommit: (raws, samples, token, {archives, deviceFamily}) async {
               expect(writes, isEmpty);
               expect(token, _tokenHex);
-              await LocalDb.commitSyncBatch(
+              await SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -523,7 +523,7 @@ void main() {
               final inner = proto.parseFrame(frame, profile: band)!.inner;
               if (inner[2] == proto.Cmd.historicalDataResult) {
                 expect(committed, true);
-                expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+                expect(await CursorStore.read('strap_trim'), _tokenHex);
                 final decoded = await db.query('decoded_onehz');
                 final archived = await db.query('raw_archive');
                 expect(archive ? archived : decoded, hasLength(1));
@@ -550,8 +550,8 @@ void main() {
               await until(() => !engine.isConnected);
               expect(writes, isEmpty);
               expect(committed, false);
-              expect(await LocalDb.getCursor('strap_trim'), isNull);
-              expect(await LocalDb.getCursorInt('rec_ts_hw'), isNull);
+              expect(await CursorStore.read('strap_trim'), isNull);
+              expect(await CursorStore.readInt('rec_ts_hw'), isNull);
               expect(await db.query('decoded_onehz'), isEmpty);
               expect(await db.query('raw_archive'), isEmpty);
               expect(
@@ -560,14 +560,8 @@ void main() {
               );
             } else {
               expect(writes.single, [1, ..._token]);
-              expect(
-                await LocalDb.getCursorInt('counter_hw'),
-                archive ? 0 : 41,
-              );
-              expect(
-                await LocalDb.getCursorInt('rec_ts_hw'),
-                archive ? 0 : _ts,
-              );
+              expect(await CursorStore.readInt('counter_hw'), archive ? 0 : 41);
+              expect(await CursorStore.readInt('rec_ts_hw'), archive ? 0 : _ts);
               if (archive) {
                 expect((await db.query('raw_archive')).single['counter'], 41);
               }
@@ -591,7 +585,7 @@ void main() {
           onCommit: (raws, samples, token, {archives, deviceFamily}) async {
             reached.complete();
             await release.future;
-            await LocalDb.commitSyncBatch(
+            await SyncLedgerStore.commitBatch(
               raws,
               samples,
               trimToken: token,
@@ -616,7 +610,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 10));
         expect(writes, isEmpty);
         expect(await db.query('decoded_onehz'), hasLength(1));
-        expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+        expect(await CursorStore.read('strap_trim'), _tokenHex);
       },
     );
   }
@@ -631,7 +625,7 @@ void main() {
         engine.debugInstallFakeLink(
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) =>
-              LocalDb.commitSyncBatch(
+              SyncLedgerStore.commitBatch(
                 raws,
                 samples,
                 trimToken: token,
@@ -643,7 +637,7 @@ void main() {
             writes.add(inner);
             expect(await db.query('decoded_onehz'), hasLength(1));
             if (inner[2] == proto.Cmd.historicalDataResult && inner[3] == 0) {
-              expect(await LocalDb.getCursor('strap_trim'), isNull);
+              expect(await CursorStore.read('strap_trim'), isNull);
               return !refuseResult;
             }
             return true;
@@ -666,8 +660,8 @@ void main() {
           expect(writes.first.sublist(3, 5), [0, 0]);
           // The gen5 envelope pads this short failure body with zero bytes.
           expect(writes.first.sublist(5), everyElement(0));
-          expect(await LocalDb.getCursor('strap_trim'), isNull);
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), _ts);
+          expect(await CursorStore.read('strap_trim'), isNull);
+          expect(await CursorStore.readInt('rec_ts_hw'), _ts);
           expect(await db.query('decoded_onehz'), hasLength(1));
           if (refuseResult) {
             expect(
@@ -703,7 +697,7 @@ void main() {
             await until(() => writes.length == 2);
             expect(writes.last.sublist(3), [1, ..._token]);
             expect(await db.query('decoded_onehz'), hasLength(1));
-            expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+            expect(await CursorStore.read('strap_trim'), _tokenHex);
           }
         } finally {
           await engine.disconnect();
@@ -725,7 +719,7 @@ void main() {
           band: band,
           onCommit: (raws, samples, token, {archives, deviceFamily}) async {
             commits.add([for (final raw in raws) raw.counter]);
-            await LocalDb.commitSyncBatch(
+            await SyncLedgerStore.commitBatch(
               raws,
               samples,
               trimToken: token,
@@ -737,7 +731,7 @@ void main() {
             final inner = proto.parseFrame(frame, profile: band)!.inner;
             if (inner[2] == proto.Cmd.historicalDataResult && inner[3] == 1) {
               expect(await db.query('decoded_onehz'), hasLength(2));
-              expect(await LocalDb.getCursor('strap_trim'), _tokenHex);
+              expect(await CursorStore.read('strap_trim'), _tokenHex);
               acks.add(List.of(inner));
             }
             return true;
@@ -776,8 +770,8 @@ void main() {
           final rows = await db.query('decoded_onehz', orderBy: 'counter');
           expect(rows.map((r) => r['counter']), [41, 42]);
           expect(rows.map((r) => r['rec_ts']), [_ts, _ts + 1]);
-          expect(await LocalDb.getCursorInt('counter_hw'), 42);
-          expect(await LocalDb.getCursorInt('rec_ts_hw'), _ts + 1);
+          expect(await CursorStore.readInt('counter_hw'), 42);
+          expect(await CursorStore.readInt('rec_ts_hw'), _ts + 1);
         } finally {
           await engine.disconnect();
         }

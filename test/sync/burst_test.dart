@@ -66,7 +66,7 @@ class _Band extends BleEngine {
 }
 
 Future<void> setFrontier(int value) =>
-    LocalDb.setCursor('rec_ts_hw', value.toString());
+    CursorStore.write('rec_ts_hw', value.toString());
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -237,7 +237,7 @@ void main() {
         await app.debugRunSyncBurst();
         expect(band.sessions, 1);
         expect(
-          await LocalDb.getCursorInt('rec_ts_hw'),
+          await CursorStore.readInt('rec_ts_hw'),
           withFrontier ? 1000 : null,
         );
         expect((await ledger())['frontier_advanced'], false);

@@ -62,7 +62,7 @@ void main() {
 
     // Today has NO day_result row yet (derivation hasn't run), but DOES have
     // an interim wake_day_features estimate — the honest "so far today" number.
-    await LocalDb.putWakeDayFeatures(
+    await SleepIntermediateStore.putWakeFeatures(
       dayId: today,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({'steps': 321}),

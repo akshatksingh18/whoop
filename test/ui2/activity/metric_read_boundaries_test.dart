@@ -116,7 +116,7 @@ void main() {
         final d = dayLabelOf(
           DateTime(current.year, current.month, current.day - i),
         );
-        await LocalDb.putMetricSeriesValue(d, 'rhr', 50.0 + i % 5);
+        await MetricSeriesStore.putValue(d, 'rhr', 50.0 + i % 5);
       }
       await seed(
         day,

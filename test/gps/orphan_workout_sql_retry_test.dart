@@ -38,7 +38,7 @@ void main() {
             .subtract(Duration(hours: hours))
             .millisecondsSinceEpoch ~/
         1000;
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'start_ts': start,
       'type': 'yoga',
@@ -46,7 +46,7 @@ void main() {
       'source': 'manual',
       'created_at': start * 1000,
     });
-    return Map<String, Object?>.from((await LocalDb.session(id))!);
+    return Map<String, Object?>.from((await SessionStore.byId(id))!);
   }
 
   for (final age in [1, 8]) {
@@ -65,7 +65,7 @@ void main() {
           'ALTER TABLE authored_hidden_sessions RENAME TO sessions',
         );
         await app.debugReconcileOrphanedLiveWorkout();
-        final saved = (await LocalDb.session('authored-read-orphan'))!;
+        final saved = (await SessionStore.byId('authored-read-orphan'))!;
         expect(saved['id'], original['id']);
         expect(saved['start_ts'], original['start_ts']);
         if (age == 1) {
@@ -80,7 +80,7 @@ void main() {
           expect(saved['strain'], isNull);
         }
         await app.debugReconcileOrphanedLiveWorkout();
-        expect(await LocalDb.session('authored-read-orphan'), saved);
+        expect(await SessionStore.byId('authored-read-orphan'), saved);
       },
     );
   }
@@ -90,7 +90,7 @@ void main() {
       () async {
         final db = await LocalDb.instance;
         final original = await seed('authored-write-orphan', 8);
-        await LocalDb.putSession({
+        await SessionStore.put({
           'id': 'authored-unrelated',
           'start_ts': 1617724800,
           'end_ts': 1617726600,
@@ -98,20 +98,20 @@ void main() {
           'status': 'done',
           'created_at': 1,
         });
-        final unrelated = await LocalDb.session('authored-unrelated');
+        final unrelated = await SessionStore.byId('authored-unrelated');
         await db.execute(
           "CREATE TRIGGER authored_orphan_refusal BEFORE INSERT ON sessions WHEN NEW.id='authored-write-orphan' BEGIN SELECT RAISE(ABORT,'authored finalize refusal'); END",
         );
         for (var i = 0; i < attempts; i++) {
           await app.debugReconcileOrphanedLiveWorkout();
           expect(app.activeWorkout, isNull);
-          expect(await LocalDb.session('authored-write-orphan'), original);
-          expect(await LocalDb.session('authored-unrelated'), unrelated);
+          expect(await SessionStore.byId('authored-write-orphan'), original);
+          expect(await SessionStore.byId('authored-unrelated'), unrelated);
         }
         await db.execute('DROP TRIGGER authored_orphan_refusal');
         final before = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         await app.debugReconcileOrphanedLiveWorkout();
-        final saved = (await LocalDb.session('authored-write-orphan'))!;
+        final saved = (await SessionStore.byId('authored-write-orphan'))!;
         expect(saved['status'], 'done');
         expect(saved['end_ts_fabricated'], 1);
         expect(saved['start_ts'], original['start_ts']);
@@ -119,9 +119,9 @@ void main() {
         expect(saved['duration_min'], isNull);
         expect(saved['calories'], isNull);
         expect(saved['strain'], isNull);
-        expect(await LocalDb.session('authored-unrelated'), unrelated);
+        expect(await SessionStore.byId('authored-unrelated'), unrelated);
         await app.debugReconcileOrphanedLiveWorkout();
-        expect(await LocalDb.session('authored-write-orphan'), saved);
+        expect(await SessionStore.byId('authored-write-orphan'), saved);
         expect(await db.query('sessions'), hasLength(2));
       },
     );

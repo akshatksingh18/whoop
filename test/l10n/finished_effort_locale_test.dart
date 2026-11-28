@@ -27,7 +27,7 @@ void main() {
     app = AppState.forTesting()
       ..user = {'age': 30, 'sex': 'f', 'height_cm': 170, 'weight_kg': 70};
     app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': id,
       'type': 'weight_training',
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,
@@ -77,7 +77,7 @@ void main() {
     (w) => w is Pressable && w.semanticLabel == l.activitySummaryRateEffort(n),
   );
   Future<Map<String, Object?>> row(WidgetTester t) async =>
-      (await t.runAsync(() => LocalDb.session(id)))!;
+      (await t.runAsync(() => SessionStore.byId(id)))!;
   for (final language in ['en', 'de', 'es', 'fr', 'hi', 'zh']) {
     for (final answer in [0, 1, 10]) {
       testWidgets(
@@ -154,7 +154,7 @@ void main() {
             expect((await row(t))['rpe'], 10.0);
             expect(rate(l, 10), findsNothing);
           } else {
-            expect(await t.runAsync(() => LocalDb.session(id)), isNull);
+            expect(await t.runAsync(() => SessionStore.byId(id)), isNull);
           }
         } finally {
           await t.runAsync(

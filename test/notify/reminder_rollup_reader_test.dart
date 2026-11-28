@@ -47,13 +47,13 @@ void main() {
     test(
       '${fixture.key} rollup cancels stale recap without inventing a finding',
       () async {
-        await LocalDb.putBaseline('crossday', fixture.value);
+        await MetricSeriesStore.putBaseline('crossday', fixture.value);
         final app = AppState.forTesting();
         addTearDown(app.dispose);
         await app.refreshReminders();
         expect(cancelled, contains(NotificationService.idWeeklyRecap));
         expect(
-          (await LocalDb.baseline('crossday'))!['payload_json'],
+          (await MetricSeriesStore.baseline('crossday'))!['payload_json'],
           fixture.value,
         );
         expect(

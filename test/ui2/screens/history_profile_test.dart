@@ -168,7 +168,7 @@ void main() {
                   'end_ts': ts + 9 * 3600,
                   'steps': 4000,
                   'day': dayLabelOf(day),
-                  'source': LocalDb.kStepSourcePhone,
+                  'source': StepCoverageStore.kStepSourcePhone,
                   'device_id': 'synthetic',
                 });
               }

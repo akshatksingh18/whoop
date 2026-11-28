@@ -139,7 +139,7 @@ void main() {
         );
         expect(await LocalDb.lastDecodedRecTs(), start + 10800 - 1);
         expect(
-          await LocalDb.baseline('sleep_user_profile'),
+          await MetricSeriesStore.baseline('sleep_user_profile'),
           isNull,
           reason:
               'User-entered or confirmed windows are not automatic profile observations',
@@ -184,7 +184,7 @@ void main() {
         expect(row['skipped'], 0);
         expect(row['partial'], 0);
         expect(row['algo_version'], kAlgoVersion);
-        final candidate = (await LocalDb.sleepSessionCandidate(
+        final candidate = (await SleepIntermediateStore.candidate(
           day,
           kAlgoVersion,
         ));
@@ -194,14 +194,18 @@ void main() {
               jsonDecode(candidate!['payload_json'] as String) as Map;
           expect(staged['sleep_json'], isNotEmpty);
           final learned =
-              (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+              (await MetricSeriesStore.baseline(
+                    'sleep_user_profile',
+                  ))!['payload_json']
                   as String;
           expect(SleepProfilePolicy.foldedDays(learned), contains(day));
           final learnedBefore = jsonDecode(learned) as Map;
           expect(learnedBefore['nights'], 1);
           expect(await engine.run(profile, force: true), 1);
           final learnedAfter = jsonDecode(
-            (await LocalDb.baseline('sleep_user_profile'))!['payload_json']
+            (await MetricSeriesStore.baseline(
+                  'sleep_user_profile',
+                ))!['payload_json']
                 as String,
           );
           expect(
@@ -219,7 +223,7 @@ void main() {
             'confirmed',
           );
           expect(
-            await LocalDb.baseline('sleep_user_profile'),
+            await MetricSeriesStore.baseline('sleep_user_profile'),
             isNull,
             reason:
                 'a user-confirmed boundary is not an automatic profile observation',
@@ -267,7 +271,7 @@ void main() {
       expect((await LocalDb.dayResult(day))!['rmssd'], isNull);
       expect((await LocalDb.dayResult(day))!['partial'], 1);
       expect(
-        (await LocalDb.metricSeries(
+        (await MetricSeriesStore.series(
           'strain',
         )).firstWhere((r) => r['date'] == day)['value'],
         8,

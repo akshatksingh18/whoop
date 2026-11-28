@@ -82,7 +82,7 @@ void main() {
     db = await LocalDb.instance;
   });
   Future<void> suggestion(String id, {String sport = 'yoga'}) =>
-      LocalDb.putWorkoutSuggestion({
+      WorkoutSuggestionStore.put({
         'id': id,
         'date': '2021-04-06',
         'start_ts': epoch(start),
@@ -151,7 +151,7 @@ void main() {
   Future<List<Map<String, Object?>>> sessions(WidgetTester t) async =>
       (await t.runAsync(() => db.query('sessions')))!;
   Future<List<Map<String, dynamic>>> suggestions(WidgetTester t) async =>
-      (await t.runAsync(LocalDb.activeWorkoutSuggestions))!;
+      (await t.runAsync(WorkoutSuggestionStore.active))!;
 
   for (final outcome in ['success', 'failure', 'overlap']) {
     testWidgets(
@@ -421,7 +421,7 @@ void main() {
         ),
       );
       await t.runAsync(
-        () => LocalDb.putSession({
+        () => SessionStore.put({
           'id': 'authored-concurrent-session',
           'start_ts': epoch(start) + 60,
           'end_ts': epoch(end) - 60,

@@ -121,7 +121,7 @@ class DayUpkeep {
     final all = [...runs ?? await loadRuns(repo)];
     final live = WorkoutClock.current;
     if (live != null) {
-      final row = await LocalDb.session(live.id);
+      final row = await SessionStore.byId(live.id);
       if (isRunType(row?['type'] as String?)) {
         final current = await summariseRun(
           repo,
@@ -271,7 +271,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
   final lo = from.millisecondsSinceEpoch ~/ 1000;
   final hi = to.millisecondsSinceEpoch ~/ 1000 - 1;
   final rows = [
-    for (final r in await LocalDb.sessionsInRange(lo, hi))
+    for (final r in await SessionStore.inRange(lo, hi))
       if (isLiftType(r['type'] as String?)) r,
   ];
   if (rows.isEmpty) return null;
@@ -330,7 +330,7 @@ Future<({double kcal, int sessions, bool approximate})?> liftingOn(
     var steps = 0;
     var known = false;
     for (final w in clock.windows()) {
-      final s = await LocalDb.resolvedStepsForWindow(w.start, w.end);
+      final s = await StepCoverageStore.resolvedStepsForWindow(w.start, w.end);
       if (s.hasPhoneCoverage || s.total > 0) {
         known = true;
         steps += s.total;
@@ -363,9 +363,9 @@ Future<({double? meters, String source})> _walkingDistance(
   final rows = await db.query(
     'live_coverage',
     where: 'source = ? AND start_ts < ? AND end_ts > ?',
-    whereArgs: [LocalDb.kStepSourcePhone, hi, lo],
+    whereArgs: [StepCoverageStore.kStepSourcePhone, hi, lo],
   );
-  final resolved = await LocalDb.resolvedStepsForDay(date);
+  final resolved = await StepCoverageStore.resolvedStepsForDay(date);
   var nativeSteps = 0.0, meters = 0.0;
   final blocked = [...excluded];
   var workoutSteps = 0.0, workoutMeters = 0.0;

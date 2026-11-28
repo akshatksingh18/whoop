@@ -35,35 +35,31 @@ void main() {
           final at = scenario == 'today-unknown' ? today : '2021-04-05';
           if (scenario.endsWith('-unknown')) {
             for (var i = 1; i <= 3; i++) {
-              await LocalDb.putMetricSeriesValue(
+              await MetricSeriesStore.putValue(
                 shiftDay(at, -i),
                 'ln_rmssd_v2',
                 math.log(50 + i),
               );
             }
           } else if (scenario == 'thin') {
-            await LocalDb.putMetricSeriesValue(
+            await MetricSeriesStore.putValue(
               '2021-04-04',
               'ln_rmssd_v2',
               math.log(55),
             );
-            await LocalDb.putMetricSeriesValue(at, 'ln_rmssd_v2', math.log(60));
+            await MetricSeriesStore.putValue(at, 'ln_rmssd_v2', math.log(60));
           } else {
             for (var i = 0; i < 35; i++) {
               final value = i >= 29
                   ? (scenario == 'opposite' ? 20.0 : 52.0)
                   : 50.0 + i % 5;
-              await LocalDb.putMetricSeriesValue(
+              await MetricSeriesStore.putValue(
                 dayLabelOf(DateTime(2021, 3, i + 1)),
                 'ln_rmssd_v2',
                 math.log(value),
               );
             }
-            await LocalDb.putMetricSeriesValue(
-              at,
-              'ln_rmssd_v2',
-              math.log(120),
-            );
+            await MetricSeriesStore.putValue(at, 'ln_rmssd_v2', math.log(120));
           }
           final view = (await loadRecentHrv(at))!;
           final db = await LocalDb.instance;

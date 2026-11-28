@@ -516,7 +516,7 @@ void main() {
     // Match the repo-backed history and the database-backed streak so the
     // preview cannot show sessions beside an unrelated empty week.
     for (final row in (await _Repo().getWorkouts())['workouts'] as List) {
-      await LocalDb.putSession({
+      await SessionStore.put({
         ...Map<String, dynamic>.from(row as Map),
         'type': row['type'] == 'Cycling' ? 'cycling' : 'weight_training',
         'status': 'done',
@@ -754,7 +754,7 @@ void main() {
     'Today uses committed result metadata before the pass finishes',
     () async {
       final today = todayLabel();
-      await LocalDb.putComputeFreshness(
+      await ComputeFreshnessStore.put(
         'today',
         jsonEncode({
           'today_day': today,
@@ -988,7 +988,7 @@ void main() {
         final engine = _BurstEngine(productive: productive);
         final app = AppState.forTesting(engine: engine);
         addTearDown(app.dispose);
-        await LocalDb.setCursor('rec_ts_hw', '1790000000');
+        await CursorStore.write('rec_ts_hw', '1790000000');
         await app.debugRunSyncBurst();
         expect(engine.rounds, productive ? 2 : 1);
         expect(engine.requests, engine.rounds);

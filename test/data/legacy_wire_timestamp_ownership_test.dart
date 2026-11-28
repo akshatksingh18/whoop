@@ -34,11 +34,11 @@ void main() {
         await LocalDb.upsertDevice(adapterId: 'gen4');
 
         Future<void> commit() =>
-            LocalDb.commitSyncBatch([raw], [sample], deviceFamily: 'gen4');
+            SyncLedgerStore.commitBatch([raw], [sample], deviceFamily: 'gen4');
         await commit();
-        expect(await LocalDb.getCursorInt('rec_ts_hw'), own);
-        expect(await LocalDb.getCursorInt('counter_hw'), 1);
-        final fresh = (await LocalDb.computeFreshness('capture'))!;
+        expect(await CursorStore.readInt('rec_ts_hw'), own);
+        expect(await CursorStore.readInt('counter_hw'), 1);
+        final fresh = (await ComputeFreshnessStore.read('capture'))!;
         final receipt = jsonDecode(fresh['payload_json'] as String) as Map;
         expect(receipt['latest_raw_rec_ts'], own);
         final rows = await (await LocalDb.instance).query('samples');
@@ -47,7 +47,7 @@ void main() {
 
         await commit();
         expect(await (await LocalDb.instance).query('samples'), rows);
-        expect(await LocalDb.getCursorInt('rec_ts_hw'), own);
+        expect(await CursorStore.readInt('rec_ts_hw'), own);
       },
     );
   }

@@ -58,7 +58,7 @@ void main() {
       final draft = LiveDraft.begin(activity);
       draft.put('pose', 0);
       await LiveDraft.retrySave();
-      final previousAnchor = await LocalDb.baseline(anchorKey);
+      final previousAnchor = await MetricSeriesStore.baseline(anchorKey);
       final previousDraft = store.values[draftKey];
       expect(previousAnchor, isNotNull);
       expect(previousDraft, isA<String>());
@@ -91,7 +91,7 @@ void main() {
       await retry();
       expect(status, findsOneWidget);
       expect(
-        await tester.runAsync(() => LocalDb.baseline(anchorKey)),
+        await tester.runAsync(() => MetricSeriesStore.baseline(anchorKey)),
         previousAnchor,
       );
       expect(store.values[draftKey], previousDraft);
@@ -106,7 +106,9 @@ void main() {
       expect(WorkoutClock.read(id, start).pausedAt, pause);
       LiveDraft.debugForget();
       expect(LiveDraft.current?.data['pose'], 2);
-      final anchor = await tester.runAsync(() => LocalDb.baseline(anchorKey));
+      final anchor = await tester.runAsync(
+        () => MetricSeriesStore.baseline(anchorKey),
+      );
       expect(jsonDecode(anchor!['payload_json'] as String), clock.toJson());
       expect(await tester.runAsync(() => db.query('sessions')), isEmpty);
     },

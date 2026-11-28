@@ -91,7 +91,7 @@ void main() {
       getProfileMap: () => app.user,
       onSessionChanged: app.publishSessionChange,
     );
-    await LocalDb.putSession({
+    await SessionStore.put({
       'id': 'synthetic',
       'type': 'general_workout',
       'start_ts': start.millisecondsSinceEpoch ~/ 1000,

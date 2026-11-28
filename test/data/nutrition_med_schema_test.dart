@@ -110,7 +110,7 @@ void main() {
     );
     expect(tables.map((r) => r['name']).toSet(), {'med_def', 'med_dose'});
 
-    final health = await LocalDb.schemaHealth();
+    final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
   });
 }

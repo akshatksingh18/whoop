@@ -97,7 +97,7 @@ void main() {
               final written = attempts.length;
               expect(await engine.requestForegroundSync(), false);
               expect(attempts, hasLength(written));
-              expect(await LocalDb.getCursor('strap_trim'), isNull);
+              expect(await CursorStore.read('strap_trim'), isNull);
               expect(
                 await (await LocalDb.instance).query('decoded_onehz'),
                 isEmpty,
@@ -129,7 +129,7 @@ void main() {
               return false;
             },
             onCommit: (raw, samples, token, {archives, deviceFamily}) =>
-                LocalDb.commitSyncBatch(
+                SyncLedgerStore.commitBatch(
                   raw,
                   samples,
                   trimToken: token,
@@ -174,7 +174,7 @@ void main() {
             await until(() => !engine.offloadActive, attempts: 1200);
           }
           expect(writes.where((c) => c == p.Cmd.historicalDataResult), isEmpty);
-          expect(await LocalDb.getCursor('strap_trim'), isNull);
+          expect(await CursorStore.read('strap_trim'), isNull);
           expect(await db.query('decoded_onehz'), isEmpty);
           expect(engine.state.syncClockLost, attempt == 9);
           await engine.disconnect();

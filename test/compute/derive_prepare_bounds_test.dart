@@ -55,7 +55,7 @@ void main() {
       );
       expect(engine.running, false);
       // A retryable skip marker, never a finalized day.
-      final row = (await LocalDb.dayResult(day))!;
+      final row = (await DayResultStore.read(day))!;
       expect(row['payload_json'], '{"skipped":true,"reason":"timeout"}');
       expect(row['finalized'], 0);
     },

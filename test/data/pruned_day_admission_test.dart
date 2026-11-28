@@ -27,7 +27,7 @@ void main() {
           final selected = entry != 'ordinary' || saved != 'finalized';
           for (final (index, day) in [(1, older), (2, newer)]) {
             final ts = localDayStartSec(day)! + 12 * 3600;
-            await LocalDb.putDayResult(
+            await DayResultStore.put(
               dayId: day,
               algoVersion: day == older && saved == 'prior algorithm'
                   ? kAlgoVersion - 1
@@ -57,7 +57,7 @@ void main() {
               Sample(tsEpoch: ts, counter: index, hr: 60, ax: 0, ay: 0, az: 1),
             );
           }
-          final before = await LocalDb.dayResult(older);
+          final before = await DayResultStore.read(older);
           final series = await db.query(
             'metric_series',
             where: 'date=?',
@@ -119,7 +119,7 @@ void main() {
             reason:
                 'The admitted older day must reach the shared guard; finalized ordinary days stay outside scope.\n${logs.join('\n')}',
           );
-          expect(await LocalDb.dayResult(older), before);
+          expect(await DayResultStore.read(older), before);
           expect(
             await db.query(
               'metric_series',
@@ -150,7 +150,7 @@ void main() {
             await engine.run(const Profile(), heavy: true, force: true),
             1,
           );
-          expect(await LocalDb.dayResult(older), before);
+          expect(await DayResultStore.read(older), before);
           expect(
             await db.query(
               'metric_series',

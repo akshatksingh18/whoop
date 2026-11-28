@@ -48,7 +48,7 @@ void main() {
     double? skinTempAdc,
     double? resp,
   }) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: dayId,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
@@ -157,11 +157,11 @@ void main() {
       );
 
       // Confirm it is stored, finalized, with the original readiness.
-      var row = await LocalDb.dayResult(day);
+      var row = await DayResultStore.read(day);
       expect(row, isNotNull);
       expect(row!['finalized'], 1);
       expect((row['readiness'] as num).toDouble(), 70);
-      expect(await LocalDb.finalizedDayIds(kAlgoVersion), contains(day));
+      expect(await DayResultStore.finalizedIds(kAlgoVersion), contains(day));
 
       // Re-derive (simulate a rescan recompute) — SAME (day_id, algo_version),
       // refreshed baseline-dependent readiness, still finalized.
@@ -186,7 +186,7 @@ void main() {
         1,
         reason: 'INSERT OR REPLACE — overwrite, not duplicate',
       );
-      row = await LocalDb.dayResult(day);
+      row = await DayResultStore.read(day);
       expect(
         (row!['readiness'] as num).toDouble(),
         48,

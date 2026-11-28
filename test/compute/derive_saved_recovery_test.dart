@@ -100,7 +100,7 @@ void main() {
           ),
           1,
         );
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         final bundle = jsonDecode(row['payload_json'] as String) as Map;
         expect(bundle, isNotEmpty);
         expect(engine.running, false);

@@ -239,7 +239,7 @@ void main() {
       final y = DateTime.now().subtract(const Duration(days: 1));
       final yesterday = dayLabelOf(DateTime(y.year, y.month, y.day, 12));
       // Yesterday is fully calculated with 10.8 strain; today is not.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: yesterday,
         algoVersion: kAlgoVersion,
         windowJson: '{}',

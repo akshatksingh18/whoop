@@ -49,6 +49,8 @@ const _allowedToNameTheTable = {
   // Names the table only to check it exists (schemaHealth); nothing computed
   // reads it.
   'lib/data/diagnostics_store.dart',
+  // The table's writer, split out of db.dart; it reads nothing back.
+  'lib/data/observation_store.dart',
 };
 
 /// How a Dart file actually reaches a SQLite table: as a quoted table name
@@ -87,7 +89,7 @@ Observation _obs(
 );
 
 Future<void> _measured(String date, double rhr, double lnRmssd) =>
-    LocalDb.putDayResult(
+    DayResultStore.put(
       dayId: date,
       algoVersion: 1,
       payloadJson: '{"date":"$date"}',
@@ -121,7 +123,7 @@ Future<String> _everyDerivedRead() async {
     out.writeln('baseline($key)=${await MetricSeriesStore.baseline(key)}');
   }
   out.writeln(
-    'importedDates=${(await LocalDb.importedDates()).toList()..sort()}',
+    'importedDates=${(await DayProvenanceStore.importedDates()).toList()..sort()}',
   );
   // The frozen day bundles: a vendor scalar reaching one is spec §7's first
   // "must never happen".
@@ -219,7 +221,7 @@ void main() {
       // one of every source_kind. If any read below admits one of these, the
       // window/median/trend moves and the snapshot stops matching.
       expect(
-        await LocalDb.putObservations([
+        await ObservationStore.putAll([
           _obs('2026-01-01T09:00:00Z', 'rhr', 999),
           _obs('2026-01-02T09:00:00Z', 'rhr', -999),
           _obs('2026-01-03T09:00:00Z', 'rhr', 999),
@@ -277,8 +279,8 @@ void main() {
         // DISTINCT, so the second write would not collide and a re-import would
         // silently double every composite it carries. The expression index has
         // no NULL to be distinct about.
-        await LocalDb.putObservation(biocharge(40));
-        await LocalDb.putObservation(biocharge(70));
+        await ObservationStore.put(biocharge(40));
+        await ObservationStore.put(biocharge(70));
         final rows = await db.query('observation');
         expect(rows, hasLength(1));
         expect(rows.single['value'], 70.0);
@@ -288,7 +290,7 @@ void main() {
         expect(rows.single['device_id'], '');
 
         // Our-vocabulary rows key off `key` instead, and do not collide with it.
-        await LocalDb.putObservation(
+        await ObservationStore.put(
           Observation(
             key: 'steps',
             value: 8000,
@@ -299,7 +301,7 @@ void main() {
         );
         // Nor does the same name under a different source_kind: 'you typed 8000'
         // and 'the band counted 8000' are two facts, not one.
-        await LocalDb.putObservation(
+        await ObservationStore.put(
           Observation(
             key: 'steps',
             value: 8000,
@@ -321,7 +323,7 @@ void main() {
         // on the wrong day for every user west of Greenwich, which is the exact
         // bug class `day_label.dart` exists to prevent.
         final at = DateTime(2026, 3, 29, 0, 30);
-        await LocalDb.putObservation(
+        await ObservationStore.put(
           Observation(
             key: 'mood',
             value: 3,
@@ -355,12 +357,12 @@ void main() {
     test('the table survives a backup/restore round trip', () async {
       final db = await LocalDb.instance;
       await db.delete('observation');
-      await LocalDb.putObservation(
+      await ObservationStore.put(
         _obs('2026-04-01T10:00:00Z', 'sleep_score', 82),
       );
       final snapshot = await LocalDb.exportCopy();
       await db.delete('observation');
-      await LocalDb.importFromDbFile(snapshot);
+      await BackupImportStore.importFromFile(snapshot);
       final rows = await db.query('observation');
       expect(
         rows,

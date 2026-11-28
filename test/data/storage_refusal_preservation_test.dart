@@ -61,7 +61,7 @@ void main() {
     'a malformed served night aborts preservation atomically including archive and pin',
     () async {
       final db = await LocalDb.instance;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: 100,
         payloadJson: '{}',

@@ -106,7 +106,7 @@ void main() {
             isTrue,
             reason: 'the real pipeline must reach the refused write',
           );
-          final failedRow = await LocalDb.dayResult(day);
+          final failedRow = await DayResultStore.read(day);
           if (failedRow != null) {
             // The ordinary sweep may retain a retryable error marker after
             // the real day transaction rolls back. It cannot finalize it.
@@ -141,7 +141,7 @@ void main() {
             1,
             reason: 'the same engine must retry successfully',
           );
-          final row = (await LocalDb.dayResult(day))!;
+          final row = (await DayResultStore.read(day))!;
           expect(row['skipped'], 0);
           expect(row['readiness'], isNull);
           expect(row['rmssd'], isNull);
@@ -168,7 +168,7 @@ void main() {
           reason: 'another engine cannot race the same store',
         );
         expect(await job, 1);
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         expect(row['skipped'], 0);
         expect(row['rmssd'], isNull);
         expect(row['readiness'], isNull);
@@ -195,7 +195,7 @@ void main() {
         } else {
           await expectLater(job, throwsA(isA<DeriveCancelled>()));
         }
-        expect(await LocalDb.dayResult(day), isNull);
+        expect(await DayResultStore.read(day), isNull);
         expect(await CursorStore.read('baseline_sig'), isNull);
         expect(engine.running, isFalse);
         expect(
@@ -236,7 +236,7 @@ void main() {
           isTrue,
           reason: 'the test must reach the real first compute stage',
         );
-        expect(await LocalDb.dayResult(day), isNull);
+        expect(await DayResultStore.read(day), isNull);
         expect(await SleepIntermediateStore.wakeFeatures(day), isNull);
         expect(engine.running, isFalse);
         expect(await LocalDb.lastDecodedRecTs(), ts);

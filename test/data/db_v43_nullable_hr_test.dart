@@ -199,7 +199,7 @@ void main() {
 
   test('export-provenance: source is stamped, never guessed', () async {
     await _useFreshDb('v43_provenance_test.db');
-    Future<void> put(String day, {String? source}) => LocalDb.putDayResult(
+    Future<void> put(String day, {String? source}) => DayResultStore.put(
       dayId: day,
       algoVersion: 70,
       payloadJson: '{}',

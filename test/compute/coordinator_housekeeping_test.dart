@@ -171,7 +171,7 @@ void main() {
         logs.any((s) => s.contains('strain rescale: 1 day(s) rebuilt')),
         true,
       );
-      final banked = (await LocalDb.dayResult(older))!;
+      final banked = (await DayResultStore.read(older))!;
       final payload = SeriesCodec.decodePayloadJson(banked['payload_json'])!;
       expect((payload['scalars'] as Map)['strain'], expected);
       expect((payload['scalars'] as Map)['rhr'], 55);

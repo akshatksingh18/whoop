@@ -32,7 +32,7 @@ void main() {
         final app = AppState.forTesting()..repo = repo;
         addTearDown(app.dispose);
         final db = (await t.runAsync(() async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

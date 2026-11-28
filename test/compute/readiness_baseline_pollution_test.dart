@@ -45,7 +45,7 @@ void main() {
     double readiness, {
     bool finalized = false,
   }) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: dayId,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({

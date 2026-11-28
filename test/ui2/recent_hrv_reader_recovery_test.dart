@@ -43,7 +43,7 @@ void main() {
     () async {
       await nights();
       await MetricSeriesStore.putValue(day(20), 'ln_rmssd_v2', math.log(200));
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day(20),
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({'source': 'whoop_export', 'imported': true}),

@@ -25,8 +25,9 @@ import 'package:sqflite/sqflite.dart';
 
 import '../compute/substrate.dart' show beatTimesMs;
 // The ONE thing this layer takes from compute/: the running build's algo
-// version, which every day_result read applies as a CEILING (see [dayResult]).
-// `show` keeps the rest of the engine out of this namespace.
+// version, which every day_result read applies as a CEILING (see
+// [DayResultStore.read]). `show` keeps the rest of the engine out of this
+// namespace.
 import '../compute/derivation_engine.dart' show kAlgoVersion;
 import '../import/import_container.dart';
 import 'day_label.dart';
@@ -63,6 +64,11 @@ part 'sleep_intermediate_store.dart';
 part 'storage_retention_store.dart';
 part 'frozen_headline_store.dart';
 part 'cursor_store.dart';
+part 'device_store.dart';
+part 'observation_store.dart';
+part 'day_result_store.dart';
+part 'day_provenance_store.dart';
+part 'backup_import_store.dart';
 
 /// The outcome of a database rebuild: why the old file would not open, where it
 /// was parked, and how many rows came back per table.
@@ -295,8 +301,9 @@ class LocalDb {
     'sync_cursor',
   ];
 
-  /// Every table [_mergeFromDbFile] carries, and the subset a damaged-file
-  /// salvage carries; `test/data/table_coverage_test.dart` keeps them complete.
+  /// Every table [BackupImportStore._mergeFromDbFile] carries, and the subset a
+  /// damaged-file salvage carries; `test/data/table_coverage_test.dart` keeps
+  /// them complete.
   @visibleForTesting
   static List<String> get salvageTablesForTest => _salvageTables;
   @visibleForTesting
@@ -422,8 +429,9 @@ class LocalDb {
         }
         rethrow;
       }
-      // Published BEFORE the salvage so `_mergeFromDbFile`'s own `instance`
-      // resolves to the new file instead of re-entering this method.
+      // Published BEFORE the salvage so `BackupImportStore._mergeFromDbFile`'s
+      // own `instance` resolves to the new file instead of re-entering this
+      // method.
       _db = fresh;
       var salvaged = const <String, int>{};
       try {
@@ -433,7 +441,7 @@ class LocalDb {
         // though one had been lost. Drop it here; the card is the one surface
         // whose whole job is telling the truth about a data-loss event.
         salvaged = Map.of(
-          await _mergeFromDbFile(
+          await BackupImportStore._mergeFromDbFile(
             quarantine,
             only: _salvageTables,
             tolerant: true,
@@ -1602,7 +1610,7 @@ class LocalDb {
   ///
   /// ponytail: no `UPSERT`. `INSERT … ON CONFLICT DO UPDATE` needs SQLite 3.24
   /// and minSdk 26 ships 3.18 (the same floor the `observation` index reasons
-  /// about), so [upsertDevice] is INSERT OR IGNORE + UPDATE.
+  /// about), so [DeviceStore.upsert] is INSERT OR IGNORE + UPDATE.
   static Future<void> _createDevice(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS device (
@@ -1615,67 +1623,6 @@ class LocalDb {
         last_seen   INTEGER NOT NULL
       )
     ''');
-  }
-
-  /// Record that [id] exists and was seen now. Every field except [id] is
-  /// COALESCED, so a caller that only knows the remote id cannot blank out a
-  /// label or an adapter another caller already established.
-  ///
-  /// [clearAdapterId] is the one deliberate exception, and it exists because
-  /// COALESCE is wrong in exactly one case: this row is the PRIMARY band
-  /// permanently (`id` is `''`), so pairing a DIFFERENT band reuses it, and a
-  /// null [adapterId] would then leave the FORGOTTEN band's family on the new
-  /// one. `PairedDevice.save` passes it when the remote id changed and the
-  /// caller does not know the new band's family. It is ignored when
-  /// [adapterId] is non-null — a caller that knows wins over one that clears.
-  static Future<void> upsertDevice({
-    String id = kPrimaryDeviceId,
-    String? adapterId,
-    String? remoteId,
-    String? label,
-    String? tier,
-    bool clearAdapterId = false,
-  }) async {
-    final db = await instance;
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    await db.insert('device', {
-      'id': id,
-      'adapter_id': adapterId,
-      'remote_id': remoteId,
-      'label': label,
-      'tier': tier,
-      'first_seen': now,
-      'last_seen': now,
-    }, conflictAlgorithm: ConflictAlgorithm.ignore);
-    // ONE flag decides both the placeholder and its argument. It is a local
-    // and not the expression twice because the two must never disagree: a
-    // statement whose `?` count differs from the argument list binds every
-    // value one column to the left, which SQLite accepts silently.
-    final blankAdapter = adapterId == null && clearAdapterId;
-    await db.rawUpdate(
-      'UPDATE device SET '
-      '${blankAdapter ? 'adapter_id = NULL, ' : 'adapter_id = COALESCE(?, adapter_id), '}'
-      'remote_id = COALESCE(?, remote_id), label = COALESCE(?, label), '
-      'tier = COALESCE(?, tier), last_seen = ? WHERE id = ?',
-      [if (!blankAdapter) adapterId, remoteId, label, tier, now, id],
-    );
-  }
-
-  /// One device row, or null when this phone has never seen it.
-  static Future<Map<String, Object?>?> deviceRow([
-    String id = kPrimaryDeviceId,
-  ]) async {
-    final db = await instance;
-    final r = await db.query('device', where: 'id = ?', whereArgs: [id]);
-    return r.isEmpty ? null : r.first;
-  }
-
-  /// Forget one device. The MEASUREMENTS it wrote are untouched — "this
-  /// removes the source, not the data", which is what the forget dialog
-  /// promises and what `decoded_*` keeping its `device_id` makes possible.
-  static Future<void> deleteDevice([String id = kPrimaryDeviceId]) async {
-    final db = await instance;
-    await db.delete('device', where: 'id = ?', whereArgs: [id]);
   }
 
   // ── OBSERVATIONS (vendor-computed / typed-in / imported scalars) ───────────
@@ -1744,48 +1691,6 @@ class LocalDb {
       'ON observation(date, source_kind)',
     );
   }
-
-  /// Upsert observations. Idempotent on `(device_id, ts_ms, source_kind, name)`
-  /// so re-running an import re-states rather than duplicates.
-  ///
-  /// `date` comes from [dayLabelOf] and nowhere else — the day model is LOCAL
-  /// calendar days, and a label computed any other way is wrong for 23 h/25 h
-  /// DST days and for every user whose local date differs from UTC's.
-  ///
-  /// There is deliberately NO reader here yet. Nothing writes observations
-  /// either: the adapter seam that will is phase 4, and wiring an existing
-  /// importer into this table today would move numbers users already see.
-  static Future<int> putObservations(
-    List<Observation> rows, {
-    String deviceId = kPrimaryDeviceId,
-  }) async {
-    if (rows.isEmpty) return 0;
-    final db = await instance;
-    await db.transaction((txn) async {
-      final batch = txn.batch();
-      for (final o in rows) {
-        batch.insert('observation', {
-          'device_id': deviceId,
-          'ts_ms': o.at.millisecondsSinceEpoch,
-          'date': o.date,
-          'source_kind': o.sourceKind.name,
-          'vendor_key': o.vendorKey,
-          'key': o.key,
-          'value': o.value.toDouble(),
-          'unit': o.unit,
-          'attribution': o.attribution,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      await batch.commit(noResult: true);
-    });
-    return rows.length;
-  }
-
-  /// One observation. [putObservations] is the batch this delegates to.
-  static Future<int> putObservation(
-    Observation o, {
-    String deviceId = kPrimaryDeviceId,
-  }) => putObservations([o], deviceId: deviceId);
 
   // ── IMPORTED WORKOUTS (no current writer; older exports may carry rows) ──
   /// A workout some OTHER app recorded, held in its own table for the same
@@ -1971,11 +1876,12 @@ class LocalDb {
     // 28-day baseline that every nightly z-score is taken against. The seam is
     // a step change in the units, not in the person.
     //
-    // NOT the same as [_importedDatesSql]'s question. Imported days are ANOTHER
-    // ALGORITHM'S OUTPUT and are masked out of every baseline. A foreign family
-    // is this app's own maths over a different sensor, so it is masked
-    // PER-METRIC — only where the seam makes the number WRONG (different
-    // units), never merely noisier. See [foreignFamilyDates].
+    // NOT the same as [DayProvenanceStore._importedDatesSql]'s question.
+    // Imported days are ANOTHER ALGORITHM'S OUTPUT and are masked out of every
+    // baseline. A foreign family is this app's own maths over a different
+    // sensor, so it is masked PER-METRIC — only where the seam makes the number
+    // WRONG (different units), never merely noisier. See
+    // [DayProvenanceStore.foreignFamilyDates].
     try {
       await db.execute(
         'ALTER TABLE metric_series_version ADD COLUMN device_family TEXT',
@@ -1986,14 +1892,14 @@ class LocalDb {
   }
 
   /// Backfill the stamp from `day_result`, which has carried the version all
-  /// along. `INSERT OR IGNORE`, so a stamp already written by [putDayResult]
-  /// wins — that one is exact, this one infers.
+  /// along. `INSERT OR IGNORE`, so a stamp already written by
+  /// [DayResultStore.put] wins — that one is exact, this one infers.
   ///
   /// `skipped`/`partial` rows are excluded because those passes do not write
-  /// `metric_series` at all (see [putDayResult]), so their version never
+  /// `metric_series` at all (see [DayResultStore.put]), so their version never
   /// produced the values being stamped. MAX per day is the same rule the serve
   /// seam uses; it is only wrong for a day last written by a ROLLED-BACK build,
-  /// and going forward [putDayResult] records that case exactly.
+  /// and going forward [DayResultStore.put] records that case exactly.
   static Future<void> _backfillMetricSeriesVersion(Database db) async {
     // `day_result` may not exist yet on an upgrade path that has not reached
     // the rung which creates it (or on a DB that never had it). A SELECT from a
@@ -2550,7 +2456,7 @@ class LocalDb {
       CREATE VIEW v_series AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
-        $_servedDayJoin
+        ${DayResultStore._servedDayJoin}
         WHERE json_valid(r.payload_json)
       ),
       curve(sk, pth, vk) AS (
@@ -2597,7 +2503,7 @@ class LocalDb {
       CREATE VIEW v_hypnogram AS
       WITH latest AS (
         SELECT r.day_id, r.payload_json FROM day_result r
-        $_servedDayJoin
+        ${DayResultStore._servedDayJoin}
         WHERE json_valid(r.payload_json)
       )
       SELECT l.day_id AS date,
@@ -5075,326 +4981,6 @@ class LocalDb {
     );
   }
 
-  // ── VERSIONED DERIVED STORE I/O (day_result; main isolate only) ─────────────
-
-  /// Upsert one (day_id, algo_version) result + its indexed scalars in one
-  /// transaction. Immutable PER VERSION: a version bump writes a new row. The
-  /// `finalized` flag locks a day from further recompute (~48 h after wake).
-  static Future<bool> putDayResult({
-    required String dayId,
-    required int algoVersion,
-    required String payloadJson,
-    required String windowJson,
-    bool finalized = false,
-    bool skipped = false,
-    // A day whose offloaded second-half compute (naps/workouts/HRR/wear/
-    // curves/wake-features) failed or timed out AFTER the headline scalars
-    // already succeeded — the row is real (not a skip marker) so headline
-    // scalars still display, but it must never count as "derived" for the
-    // raw-pruning guard (see dayResultIds). Callers should also avoid passing
-    // `finalized: true` alongside `partial: true` unless there genuinely is
-    // no raw substrate to ever retry from (e.g. the force-finalized import
-    // path), since a finalized row is never revisited on a version bump.
-    bool partial = false,
-    double? rhr,
-    double? rmssd,
-    double? readiness,
-    Map<String, double?> series = const {},
-    // WHO produced these scalars — 'band' for a day this app derived from 1 Hz
-    // records, a vendor tag for an importer. NULL is the default and means
-    // UNKNOWN; it is never filled in with a guess, because the whole point of
-    // the column is that a guessed provenance is worse than none. See
-    // [_createMetricSeriesVersion].
-    String? source,
-    // WHICH BAND'S UNITS these scalars are in — the substrate's own
-    // `device_family` stamp, which is already null when the window spans two
-    // straps or carries no stamp at all. Same rule as [source]: never guessed.
-    // See [_createMetricSeriesVersion] and [foreignFamilyDates].
-    String? deviceFamily,
-    int? sleepIntentGeneration,
-    int? sleepRevision,
-  }) async {
-    final db = await instance;
-    final now = DateTime.now().millisecondsSinceEpoch;
-    // THE write seam for the compact curve format. All four callers
-    // (DerivationEngine x2, cloud_import, whoop_import) funnel through here, so
-    // no producer needs to know the wire format exists — earlier code keeps
-    // merging and patching plain [{t,v}] lists in memory. Lossless or no-op:
-    // SeriesCodec leaves anything it cannot encode exactly as it found it.
-    final encodedPayload = SeriesCodec.encodePayloadJson(payloadJson);
-    return db.transaction((txn) async {
-      final intent = await SleepOverrideStore._correctionVia(txn, dayId);
-      if ((intent?['generation'] as num?)?.toInt() != sleepIntentGeneration ||
-          (sleepRevision != null &&
-              (await CursorStore._readIntVia(
-                        txn,
-                        'sleep_correction_revision',
-                      ) ??
-                      0) !=
-                  sleepRevision)) {
-        return false;
-      }
-      var effectivePayload = encodedPayload;
-      if (intent != null) {
-        final bundle = SeriesCodec.decodePayloadJson(encodedPayload)!;
-        final sleep = bundle['sleep'];
-        final accounting = sleep is Map ? sleep['accounting'] : null;
-        final value = accounting is Map ? accounting['value'] : null;
-        final window = sleep is Map && sleep['window'] is Map
-            ? (sleep['window'] as Map)['value']
-            : null;
-        final usable =
-            intent['action'] != 'rejected' &&
-            (intent['action'] != 'clear' ||
-                const [
-                  'auto',
-                  'auto_fallback',
-                  'none',
-                ].contains(bundle['sleep_source'])) &&
-            value is Map &&
-            value['tst_sec'] is num &&
-            (value['tst_sec'] as num) > 0 &&
-            window is Map &&
-            window['onset_ms'] is num &&
-            window['offset_ms'] is num &&
-            (window['offset_ms'] as num) > (window['onset_ms'] as num);
-        final next = {...intent, 'pending': false, 'usable': usable};
-        final current = usable
-            ? {
-                ...bundle,
-                'sleep_correction': {
-                  for (final key in [
-                    'generation',
-                    'action',
-                    'pending',
-                    'usable',
-                  ])
-                    key: next[key],
-                },
-              }
-            : SleepCorrection.unknown(bundle, next);
-        effectivePayload = SeriesCodec.encodePayloadJson(jsonEncode(current));
-        if (!usable) {
-          finalized = false;
-          partial = true;
-          rhr = rmssd = readiness = null;
-        }
-        await txn.update(
-          'baselines',
-          {'payload_json': jsonEncode(next), 'updated_at': now},
-          where: 'key = ?',
-          whereArgs: ['sleep_correction:$dayId'],
-        );
-      }
-      await txn.insert('day_result', {
-        'day_id': dayId,
-        'algo_version': algoVersion,
-        'payload_json': effectivePayload,
-        'window_json': windowJson,
-        'computed_at': now,
-        'finalized': finalized ? 1 : 0,
-        'skipped': skipped ? 1 : 0,
-        'partial': partial ? 1 : 0,
-        'rhr': rhr,
-        'rmssd': rmssd,
-        'readiness': readiness,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      // A `partial` row already doesn't count as "derived" for the raw-pruning
-      // guard (see above) — extend the same caution to the rolling baselines:
-      // don't let a day whose second-half compute failed/timed out overwrite
-      // (or seed, for a brand-new day) the value tomorrow's readiness/illness
-      // baseline reads via metric_series. The next successful (non-partial)
-      // pass writes the real value once it lands.
-      if (!partial) {
-        for (final e in series.entries) {
-          await txn.insert('metric_series', {
-            'date': dayId,
-            'key': e.key,
-            'value': e.value,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-        // Whose maths wrote those scalars (see _createMetricSeriesVersion).
-        // REPLACE, not IGNORE: the last pass to write the series is the one
-        // that owns the stamp, including a ROLLED-BACK build writing a lower
-        // version over a higher one — that is the case a MAX() over day_result
-        // gets wrong, and the reason this is a stamp and not a query.
-        //
-        // Inside the same transaction as the values, so the stamp and what it
-        // describes can never disagree. Skipped when the series map is empty:
-        // an empty map wrote nothing, so there is nothing to attribute.
-        if (series.isNotEmpty) {
-          await txn.insert('metric_series_version', {
-            'date': dayId,
-            'algo_version': algoVersion,
-            // The last pass to write the series owns the stamp — provenance
-            // included, so a caller that does not know its own writes NULL
-            // here rather than inheriting the previous writer's claim.
-            'source': source,
-            'device_family': deviceFamily,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-      }
-      return true;
-    });
-  }
-
-  /// The version a `day_result` read is allowed to serve at most: the algo
-  /// version of the build doing the reading.
-  ///
-  /// `PRIMARY KEY (day_id, algo_version)` makes versions SIBLINGS, not
-  /// replacements, so a day can hold several generations at once. Picking the
-  /// highest one present is right on the way up and wrong on the way down: a
-  /// user who rolls back a store build, or leaves TestFlight for release, has
-  /// rows from a version this build no longer implements, and `MAX()` serves
-  /// them forever. A re-derive does not repair it — it writes a row at the
-  /// LOWER version that `MAX()` then ignores — so day-detail (reading the
-  /// bundle) and trends (reading the unversioned, always-overwritten
-  /// `metric_series`) disagree about the same day permanently. Worse, if the
-  /// newer version reinterpreted a field under the same key, the older UI reads
-  /// it as a real number.
-  ///
-  /// A ceiling, not an equality test: rows from OLDER versions are still
-  /// served, which is the existing (correct) behaviour for a day whose raw has
-  /// aged out and which therefore never gets a fresh-version row. The rows
-  /// above the ceiling are not deleted either — re-upgrading brings them back.
-  ///
-  /// `local_repository_impl.crossDayStaleReason` applies the same discipline to
-  /// the cross-day artifact, with a comment calling the ungated case "the bug".
-  static const int _servedAlgoCeiling = kAlgoVersion;
-
-  /// The served-version join, in SQL: bind a `day_result r` to its highest row
-  /// at or below [_servedAlgoCeiling]. Every reader (and the coach views) uses
-  /// THIS rather than writing its own `MAX(algo_version)` — the pattern had
-  /// already reappeared at five readers and two views, and the ceiling has to
-  /// be on all of them or it is on none of them.
-  static const String _servedDayJoin =
-      'JOIN (SELECT day_id, MAX(algo_version) AS v FROM day_result '
-      'WHERE algo_version <= $_servedAlgoCeiling GROUP BY day_id) m '
-      'ON r.day_id = m.day_id AND r.algo_version = m.v';
-
-  /// The result row for one day_id at the highest version this build serves
-  /// (see [_servedAlgoCeiling]), with a normalized `date` alias for callers.
-  /// Null if absent.
-  static Future<Map<String, dynamic>?> dayResult(String dayId) async {
-    final db = await instance;
-    final rows = await db.query(
-      'day_result',
-      where: 'day_id = ? AND algo_version <= ?',
-      whereArgs: [dayId, _servedAlgoCeiling],
-      orderBy: 'algo_version DESC',
-      limit: 1,
-    );
-    return rows.isEmpty ? null : _withDate(rows.first);
-  }
-
-  /// The most recent day (highest day_id label), latest version, or null.
-  static Future<Map<String, dynamic>?> latestDayResult() async {
-    final rows = await recentDayResults(1);
-    return rows.isEmpty ? null : rows.first;
-  }
-
-  /// The N most recent days (newest day_id first), each at its LATEST version.
-  static Future<List<Map<String, dynamic>>> recentDayResults(int limit) async {
-    final db = await instance;
-    // For each day_id pick MAX(algo_version), then join back for the full row.
-    final rows = await db.rawQuery(
-      'SELECT r.* FROM day_result r '
-      '$_servedDayJoin '
-      'ORDER BY r.day_id DESC LIMIT ?',
-      [limit],
-    );
-    return [for (final r in rows) _withDate(r)];
-  }
-
-  /// The stored sleep WINDOW for each of the [limit] most recent days, newest
-  /// first, WITHOUT touching `payload_json`.
-  ///
-  /// `day_result.window_json` already holds the sleep-window Metric envelope
-  /// (`{value: {onset_ms, offset_ms, …}, confidence, tier, …}`) in its own
-  /// column, so onset/offset are one small projected read — no bundle decode,
-  /// no per-day round trip. Rows: `{day_id, window_json}`.
-  /// [before] (a day label) keeps only nights before that day, so a past
-  /// night's comparison never reads later nights (Build 91, Codex audit F07).
-  static Future<List<Map<String, dynamic>>> sleepWindowRows(
-    int limit, {
-    String? before,
-  }) async {
-    final db = await instance;
-    return db.rawQuery(
-      'SELECT r.day_id AS day_id, r.window_json AS window_json '
-      'FROM day_result r '
-      '$_servedDayJoin '
-      'WHERE r.skipped = 0 '
-      '${before == null ? '' : 'AND r.day_id < ? '}'
-      'ORDER BY r.day_id DESC LIMIT ?',
-      [?before, limit],
-    );
-  }
-
-  /// Every day label ('YYYY-MM-DD') the lookback screen can actually RENDER —
-  /// exactly the days [dayResult]/`_bundleForDate` would return a real bundle
-  /// for, newest first. That is: the LATEST-`algo_version` `day_result` row per
-  /// day that is NOT a derivation skip-marker. A day whose minute-detail was
-  /// pruned still qualifies (its curves live in the persisted bundle payload,
-  /// so it renders a summary); but a raw-only day (`decoded_onehz` with no
-  /// derived row) and a skip-marker day both render EMPTY, so neither must
-  /// bound navigation. Skips are excluded via the `skipped` column, which
-  /// `_markDaySkipped` sets alongside the `{skipped:true}` payload.
-  static Future<List<String>> availableDayIds() async {
-    final db = await instance;
-    // Latest version per day (matches [dayResult]), then drop skip-markers.
-    final rows = await db.rawQuery(
-      'SELECT r.day_id FROM day_result r '
-      '$_servedDayJoin '
-      'WHERE r.skipped = 0 '
-      'ORDER BY r.day_id DESC',
-    );
-    return [
-      for (final r in rows)
-        if (r['day_id'] is String && (r['day_id'] as String).isNotEmpty)
-          r['day_id'] as String,
-    ];
-  }
-
-  /// The set of day_id labels that already have a REAL, COMPLETE result at
-  /// [algoVersion]. Used by the raw-pruning guard to decide what's safe to
-  /// prune - a day that only ever got a skip-marker (its derivation threw)
-  /// or a partial row (headline scalars only; the offloaded second-half
-  /// blocks failed/timed out) must NOT count as "derived" here, or its raw
-  /// substrate gets pruned with no way left to ever fill in the missing
-  /// data correctly.
-  static Future<Set<String>> dayResultIds(int algoVersion) async {
-    final db = await instance;
-    final rows = await db.query(
-      'day_result',
-      columns: ['day_id'],
-      where: 'algo_version = ? AND skipped = 0 AND partial = 0',
-      whereArgs: [algoVersion],
-    );
-    return {for (final r in rows) r['day_id'] as String};
-  }
-
-  /// The set of day_id labels that are FINALIZED at [algoVersion] (locked). A
-  /// finalized day is never recomputed even on a version bump.
-  static Future<Set<String>> finalizedDayIds(int algoVersion) async {
-    final db = await instance;
-    final rows = await db.query(
-      'day_result',
-      columns: ['day_id'],
-      where: 'algo_version = ? AND finalized = 1',
-      whereArgs: [algoVersion],
-    );
-    return {for (final r in rows) r['day_id'] as String};
-  }
-
-  /// Normalize a day_result row to also carry a `date` key (== day_id) so legacy
-  /// readers that keyed on `date` keep working.
-  static Map<String, dynamic> _withDate(Map<String, dynamic> row) {
-    final m = Map<String, dynamic>.from(row);
-    m['date'] = m['day_id'];
-    return m;
-  }
-
   /// Write a consistent, compacted snapshot of the DB to a temp file for export.
   /// Uses `VACUUM INTO` (NOT a raw file copy) so the snapshot is transactionally
   /// consistent — a plain copy of a live SQLite file can produce torn pages
@@ -5430,7 +5016,7 @@ class LocalDb {
     final derivedRows = await db.rawQuery(
       'SELECT r.day_id, r.algo_version, r.computed_at, r.finalized '
       'FROM day_result r '
-      '$_servedDayJoin '
+      '${DayResultStore._servedDayJoin} '
       'ORDER BY r.day_id DESC',
     );
     final metricRows = await db.rawQuery(
@@ -5914,695 +5500,6 @@ class LocalDb {
       'ORDER BY name',
     );
     return [for (final r in rows) r['name'] as String];
-  }
-
-  /// True when [dayId] holds a day this device DERIVED ITSELF from real 1 Hz —
-  /// as opposed to absent, a skip marker, or an earlier import.
-  ///
-  /// THE guard every import must pass before writing a day. `putDayResult` is
-  /// INSERT OR REPLACE and imports write `finalized: 1`, so overwriting a
-  /// measured day both destroys it and locks the replacement in — the raw it
-  /// came from is pruned within days, and `DerivationEngine` never revisits a
-  /// finalized row. Irreversible, and there is no per-source undo.
-  ///
-  /// It lived as a private static inside `WhoopImporter`, which is why exactly
-  /// one of the four import paths honoured it.
-  static Future<bool> isMeasuredDay(String dayId) async =>
-      isMeasuredDayRow(await dayResult(dayId));
-
-  /// [isMeasuredDay] over an already-fetched row. Pure.
-  static bool isMeasuredDayRow(Map<String, dynamic>? row) {
-    if (row == null) return false;
-    if (((row['skipped'] as num?) ?? 0).toInt() == 1) return false;
-    try {
-      final p = SeriesCodec.decodePayloadJson(
-        (row['payload_json'] as String?) ?? '{}',
-      );
-      if (p != null) {
-        if (p['skipped'] == true) return false;
-        // A prior import (any importer) is replaceable — all of them are
-        // snapshots, none of them is measured on-device data.
-        if (p['imported'] == true) return false;
-      }
-    } catch (_) {
-      // Present but unreadable — treat as real and refuse to clobber it.
-      return true;
-    }
-    return true;
-  }
-
-  /// SQL selecting the `date` of every day whose scalars were IMPORTED.
-  /// A fragment so the mask and the filters that apply it cannot drift apart.
-  ///
-  /// TWO SIGNALS, because the exact one is younger than the data:
-  ///
-  ///  * `metric_series_version.source` — precise, but the column only exists
-  ///    from schema v43 and is deliberately NEVER retro-filled (a guessed
-  ///    provenance is worse than none). Every day written before v43 reads
-  ///    NULL, which is most of any real user's history.
-  ///  * `day_result.payload_json`'s `"imported": true` — the marker BOTH
-  ///    importers have written since they existed, and the same flag
-  ///    [isMeasuredDayRow] tests on the write path.
-  ///
-  /// The second is what makes a NULL `source` DECIDABLE rather than ambiguous:
-  /// NULL means "the column did not exist yet", not "unknown vendor", and the
-  /// bundle behind that day still says who wrote it. So NULL is resolved
-  /// against the payload rather than treated as suspect — dropping every
-  /// NULL-source day would delete the user's genuine pre-v43 history from
-  /// their own baselines, i.e. fabricate a baseline out of a short recent
-  /// window, which is the worse fault of the two.
-  ///
-  /// A substring match, not `json_extract`: `jsonEncode` emits no spaces and
-  /// this app is the only writer of the flag, so the literal is exact, and it
-  /// does not assume a JSON1-enabled sqlite on every platform we ship to.
-  ///
-  /// The `IS NOT NULL` guards are not decoration. SQLite does not enforce NOT
-  /// NULL on a declared PRIMARY KEY column of a legacy rowid table, and a
-  /// single NULL inside a `NOT IN (…)` list makes the whole predicate NULL for
-  /// EVERY row — one stray row would silently empty every baseline in the app
-  /// rather than filter one day out of it.
-  /// THE SERVED VERSION ONLY on the `day_result` half, for the same reason
-  /// every other reader uses [_servedDayJoin]: `PRIMARY KEY (day_id,
-  /// algo_version)` makes versions siblings, so an imported day that the band
-  /// LATER re-derived keeps its old imported row sitting beside the new
-  /// measured one. Testing every row made that day imported FOREVER — masked
-  /// out of the baselines it is now entitled to be in, with no way back
-  /// short of deleting the superseded row. `metric_series_version` needs no
-  /// such guard: it is `PRIMARY KEY (date)` and the last writer replaces it,
-  /// which is exactly why the stamp exists.
-  static const String _importedDatesSql =
-      'SELECT date FROM metric_series_version '
-      "WHERE date IS NOT NULL AND source IS NOT NULL AND source <> 'band' "
-      'UNION '
-      'SELECT r.day_id FROM day_result r '
-      '$_servedDayJoin '
-      "WHERE r.day_id IS NOT NULL AND r.payload_json LIKE '%\"imported\":true%'";
-
-  /// Day labels whose stored scalars are ANOTHER vendor's derived numbers.
-  ///
-  /// THE MASK for every baseline read, and the inverse of [isMeasuredDay]:
-  /// that one guards the WRITE path (an import must not clobber a measured
-  /// day), and nothing guarded the read path — so imported days were feeding
-  /// the readiness and illness baselines the user's own scores are measured
-  /// against. A window that mixes them is not a baseline of this person.
-  ///
-  /// Returned as a set rather than applied inside each query on purpose: the
-  /// scan behind it is over `day_result.payload_json` (whole day bundles), so
-  /// a caller reading several series takes it ONCE and filters in Dart.
-  static Future<Set<String>> importedDates() async {
-    final db = await instance;
-    return {
-      for (final r in await db.rawQuery(_importedDatesSql)) r['date'] as String,
-    };
-  }
-
-  /// The `metric_series` keys whose stored VALUES ARE IN THE BAND'S OWN UNITS,
-  /// so a day measured by a different band family is not on the same scale as
-  /// today's and must not sit in the same baseline.
-  ///
-  /// DELIBERATELY SHORT, and it is a list of UNIT MISMATCHES, not of things
-  /// that got noisier. `skin_temp_adc` is a gen4 thermistor ADC COUNT on one
-  /// side of a strap swap and a gen5 CENTI-DEGREE reading on the other — the
-  /// same key holding two different quantities, which is a wrong number, not a
-  /// less precise one. `rhr` and `rmssd` off a different wrist sensor are the
-  /// same quantity measured slightly differently: masking those would delete
-  /// the user's history from their own baseline to fix a bias smaller than the
-  /// window it is measured over. Nothing joins this set without a measured unit
-  /// difference behind it.
-  static const Set<String> familySeamKeys = {'skin_temp_adc'};
-
-  /// Day labels whose scalars were measured by a DIFFERENT band family than the
-  /// most recent stamped day — the mask for [familySeamKeys] baselines.
-  ///
-  /// Two properties that make this safe to apply unconditionally:
-  ///  * A NULL stamp is never foreign. Unknown provenance is its own case (see
-  ///    [_createMetricSeriesVersion]); every day written before the column
-  ///    existed reads NULL, and dropping those would delete a real user's whole
-  ///    history from their own baseline.
-  ///  * A single-family user gets the EMPTY SET, because nothing differs from
-  ///    the newest stamp. So this changes no number until a strap actually
-  ///    changes generation.
-  static Future<Set<String>> foreignFamilyDates() async {
-    final db = await instance;
-    final rows = await db.rawQuery(
-      'SELECT date FROM metric_series_version '
-      'WHERE date IS NOT NULL AND device_family IS NOT NULL '
-      'AND device_family <> ('
-      '  SELECT device_family FROM metric_series_version '
-      '  WHERE device_family IS NOT NULL ORDER BY date DESC LIMIT 1'
-      ')',
-    );
-    return {for (final r in rows) r['date'] as String};
-  }
-
-  /// Import another device's exported WHOOP DB ([path], from [exportCopy] +
-  /// share) by MERGING its rows into this one (INSERT-OR-REPLACE). Covers derived
-  /// results, the metric series, user data, and the raw ledger so the receiving
-  /// device has the full history (and can re-derive). Same app ⇒ same schema; a
-  /// table missing in the source is skipped. Locally FINALIZED day_result rows
-  /// are protected — an import never overwrites them. Returns per-table counts
-  /// of rows actually copied.
-  ///
-  /// The picked file may be COMPRESSED. Auto-backups are written gzipped, so
-  /// the file a user reinstalling onto a new phone reaches for is a `.db.gz`,
-  /// and handing that straight to `openDatabase` fails with "file is not a
-  /// database" — the app could write backups it could not restore. Detected by
-  /// MAGIC BYTES, not by extension: a file manager or a sync client that
-  /// renames on the way through is exactly the situation a restore has to
-  /// survive. Plain `.db` files (older backups, and `exportCopy` output) take
-  /// the same path they always did.
-  static Future<Map<String, int>> importFromDbFile(String path) async {
-    final resetGeneration = _restoreResetGeneration;
-    if (!_restoreStillCurrent(resetGeneration)) {
-      throw DbImportException(_restoreResetError, const {});
-    }
-    if (!await File(path).exists()) {
-      throw const FileSystemException('Backup file not found');
-    }
-    if (await sniffFile(path) != ImportContainer.gzip) {
-      return _mergeFromDbFile(path, resetGeneration: resetGeneration);
-    }
-    final work = await Directory.systemTemp.createTemp('whoop_restore_');
-    try {
-      final inflated = await inflateGzip(path, work);
-      if (inflated == null ||
-          await sniffFile(inflated) != ImportContainer.sqlite) {
-        throw const ImportFormatException(
-          'That file unpacked to something that is not a $kAppName database.',
-        );
-      }
-      return await _mergeFromDbFile(inflated, resetGeneration: resetGeneration);
-    } finally {
-      // The inflated copy is a full second copy of the database, so it goes
-      // whether the import worked or not.
-      try {
-        if (work.existsSync()) await work.delete(recursive: true);
-      } catch (_) {
-        /* the OS reclaims the temp dir eventually */
-      }
-    }
-  }
-
-  /// Merge every table [tables] names from the database file at [path] into
-  /// this one.
-  ///
-  /// [only] overrides the table list and its ORDER — used by [_openOrRebuild],
-  /// which wants the irreplaceable tables first. [tolerant] isolates each table
-  /// behind its own catch: a rebuild salvaging a genuinely damaged file must
-  /// lose that table and keep going, where a user-initiated restore of a file
-  /// they chose must still fail loudly rather than report a partial success.
-  static Future<Map<String, int>> _mergeFromDbFile(
-    String path, {
-    List<String>? only,
-    bool tolerant = false,
-    int? resetGeneration,
-  }) async {
-    final restoreGeneration = resetGeneration ?? _restoreResetGeneration;
-    if (!_restoreStillCurrent(restoreGeneration)) {
-      throw DbImportException(_restoreResetError, const {});
-    }
-    final src = await openDatabase(path, readOnly: true);
-    final db = await instance;
-    const tables = _importTables;
-    // Columns this app's schema actually has, per table — so a row from a NEWER
-    // export carrying extra columns this build doesn't know about is filtered
-    // down (dropped) instead of throwing "no such column". A column the source
-    // LACKS simply isn't in the map → the dest default applies. Forward- and
-    // backward-compatible across schema versions.
-    Future<Set<String>> destCols(String t) async {
-      final info = await db.rawQuery('PRAGMA table_info($t)');
-      return {for (final c in info) (c['name'] as String)};
-    }
-
-    final counts = <String, int>{};
-    final sourceReadingDates = <String>{};
-    Object? mergeError;
-    // DISTINCT DAYS ACTUALLY WRITTEN — the number the caller reports as
-    // "N days imported".
-    //
-    // `day_result`'s primary key is (day_id, algo_version), so a row count is
-    // not a day count: a history that has lived through two algo bumps has two
-    // rows for the same day. This used to be a COUNT(DISTINCT day_id) asked of
-    // the SOURCE before anything was copied, which over-reported the other way
-    // — a re-import where every local row is finalized (all skipped by the
-    // protectedKeys guard below) still claimed the full source day count. Stays
-    // null when day_result could not be read at all, so the caller can tell
-    // "nothing imported" from "we don't know".
-    Set<String>? importedDays;
-    // The days this phone already finalized, read BEFORE anything merges: a
-    // protected day keeps its chart values and their provenance as well as
-    // its bundle, so Today, Trends and the baselines stay in agreement with
-    // it (Build 94, Codex N06).
-    final finalizedDays = <String>{};
-    try {
-      for (final r in await db.query(
-        'day_result',
-        columns: ['day_id'],
-        where: 'finalized = 1',
-      )) {
-        if (r['day_id'] is String) finalizedDays.add(r['day_id'] as String);
-      }
-    } catch (_) {
-      /* no day_result yet: nothing to protect */
-    }
-    try {
-      var expectedSleepRevision = await SleepOverrideStore.correctionRevision();
-      await _checkSleepCorrectionImport(db, src);
-      if ((await src.rawQuery(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='body_weight_reading'",
-      )).isNotEmpty) {
-        sourceReadingDates.addAll([
-          for (final r in await src.rawQuery(
-            'SELECT DISTINCT date FROM body_weight_reading',
-          ))
-            r['date'] as String,
-        ]);
-      }
-
-      for (final t in (only ?? tables)) {
-        try {
-          // PAGED SOURCE READ — never `SELECT *` a whole table.
-          //
-          // This used to be a single `src.query(t)`. sqflite serialises an entire
-          // result set into Java objects on the platform side BEFORE any of it
-          // crosses the channel, so importing another device's `decoded_onehz`
-          // (86,400 rows per day of history) materialised the whole table on the
-          // 256 MB Dalvik heap at once — and then held it live for the duration
-          // of the insert loop below. That is the production
-          // `java.lang.OutOfMemoryError` seen on 0.9.19 from ImportScreen
-          // ("target footprint 268435456, growth limit 268435456"); the OOM
-          // surfaced on whichever thread happened to allocate next, which is why
-          // it was blamed on a BLE binder callback.
-          //
-          // Keyset pagination on `rowid` (none of these tables is WITHOUT ROWID),
-          // NOT LIMIT/OFFSET — OFFSET re-scans the skipped prefix on every page,
-          // which is quadratic over a full history.
-          // `_rowid` is aliased into the projection so the cursor can advance;
-          // it is filtered straight back out when the row is rebuilt below,
-          // because the `cols.contains(e.key)` guard only admits real
-          // destination columns and no table has a column by that name.
-          const pageSize = 2000;
-          const rowidKey = '_rowid';
-          var lastRowid = 0;
-          Future<List<Map<String, Object?>>> nextPage() => src.rawQuery(
-            'SELECT rowid AS $rowidKey, * FROM $t '
-            'WHERE rowid > ? ORDER BY rowid ASC LIMIT ?',
-            [lastRowid, pageSize],
-          );
-
-          List<Map<String, Object?>> firstPage;
-          try {
-            firstPage = await nextPage();
-          } on DatabaseException catch (e) {
-            // ONLY "this export doesn't carry that table" is skippable. A blanket
-            // catch here made every read failure — corruption, a truncated or
-            // malformed source file, an I/O error — look identical to an absent
-            // table: the table was skipped, `counts[t]` was never set, and the
-            // summed total then reported a PARTIAL import as a success. Silent
-            // partial success on someone's health history is the worst available
-            // outcome, so anything that is not a missing table now propagates.
-            if (e.isNoSuchTableError()) continue;
-            rethrow;
-          }
-          if (t == 'day_result') importedDays = <String>{};
-          if (firstPage.isEmpty) {
-            counts[t] = 0;
-            continue;
-          }
-          final cols = await destCols(t);
-          if (cols.isEmpty) continue; // table absent in THIS build
-          // FINALIZED-DAY PROTECTION: a local day_result row with finalized=1 is
-          // LOCKED (this device's own fully-derived history — the long-term
-          // system of record). A foreign export merged with REPLACE must never
-          // clobber it on a (day_id, algo_version) collision; non-finalized rows
-          // keep the plain REPLACE behavior (the import may well be fresher).
-          var protectedKeys = const <String>{};
-          if (t == 'day_result') {
-            final fin = await db.query(
-              'day_result',
-              columns: ['day_id', 'algo_version'],
-              where: 'finalized = 1',
-            );
-            protectedKeys = {
-              for (final r in fin) '${r['day_id']}|${r['algo_version']}',
-            };
-          }
-          var copied = 0;
-          var page = firstPage;
-          // ONE TRANSACTION PER PAGE, not per table. The whole-table transaction
-          // this replaces could only ever commit if the entire table fit in
-          // memory first, which is the bug. Per-page commits keep peak residency
-          // at one page, and the import stays safe to interrupt or repeat: every
-          // write is INSERT OR REPLACE keyed on the row's own identity, so a
-          // re-run converges to the same state, and each decoded_onehz row's
-          // orphan guard is still queued in the SAME transaction as the row it
-          // guards — the invariant that matters is per-row, not per-table.
-          while (page.isNotEmpty) {
-            expectedSleepRevision = await db.transaction((txn) async {
-              if (!_restoreStillCurrent(restoreGeneration)) {
-                throw _restoreResetError;
-              }
-              if ((await CursorStore._readIntVia(
-                        txn,
-                        'sleep_correction_revision',
-                      ) ??
-                      0) !=
-                  expectedSleepRevision) {
-                throw StateError(
-                  'Sleep history changed during restore. Both stores are preserved; review the conflict before merging.',
-                );
-              }
-              var nextSleepRevision = expectedSleepRevision;
-              // CHUNKED, for the same reason SyncLedgerStore.commitBatch chunks: sqflite
-              // serialises a whole batch's args into ONE platform message, and
-              // the orphan guard below adds an op per decoded_onehz row on top.
-              const chunkOps = 4000;
-              var batch = txn.batch();
-              var ops = 0;
-              Future<void> flush() async {
-                if (ops == 0) return;
-                await batch.commit(noResult: true);
-                batch = txn.batch();
-                ops = 0;
-              }
-
-              final rows = <Map<String, Object?>>[];
-              for (final r in page) {
-                final row = <String, Object?>{
-                  for (final e in r.entries)
-                    if (cols.contains(e.key)) e.key: e.value,
-                };
-                if (row.isEmpty) continue;
-                if (t == 'sync_cursor' &&
-                    row['name'] == 'sleep_correction_revision') {
-                  final incoming = int.tryParse('${row['value']}');
-                  if (incoming == null || incoming < 0) {
-                    throw StateError(
-                      'Backup has an invalid sleep correction revision',
-                    );
-                  }
-                  // This is a local publication generation, not a portable
-                  // device cursor. Restoring a lower or equal number would
-                  // make an obsolete worker eligible again (the ABA problem).
-                  final current =
-                      await CursorStore._readIntVia(
-                        txn,
-                        'sleep_correction_revision',
-                      ) ??
-                      0;
-                  nextSleepRevision = math.max(current, incoming) + 1;
-                  row['value'] = '$nextSleepRevision';
-                }
-                // A modern backup's daily row is only a projection. Merge its
-                // timed readings, then rebuild once using the shared rule.
-                if (t == 'body_weight' &&
-                    sourceReadingDates.contains(row['date'])) {
-                  continue;
-                }
-                if (t == 'decoded_onehz') {
-                  // A pre-v46 export still carries the retired columns as
-                  // VALUES (the disproven on_wrist/hr_valid reads and the
-                  // -50.00 °C skin-temp error sentinel). Importing them
-                  // verbatim would reinstate exactly the rows the v46
-                  // data-retirement cleaned, so the same rule applies at this
-                  // boundary — the migration only runs on version bumps and
-                  // never sees imported rows.
-                  if (cols.contains('on_wrist')) row['on_wrist'] = null;
-                  if (cols.contains('hr_valid')) row['hr_valid'] = null;
-                  final st = row['skin_temp_c'];
-                  if (st is num && st <= -49.995) row['skin_temp_c'] = null;
-                }
-                // THE PRIMARY DEVICE IS NOT PORTABLE. Its `remote_id` is a
-                // per-install handle — a CBPeripheral UUID that is unique to
-                // the phone AND the app install — so a foreign export's copy names a peripheral this
-                // phone cannot connect to. Importing it would REPLACE the local
-                // pairing (id `''` is the primary, permanently) and leave the
-                // app claiming a band that is not there. A restore onto the
-                // same install needs nothing from here: the row is already
-                // present, and the SharedPreferences mirror re-establishes it
-                // if the database was rebuilt.
-                if (t == 'device' && row['id'] == kPrimaryDeviceId) continue;
-                if ((t == 'metric_series' || t == 'metric_series_version') &&
-                    finalizedDays.contains(row['date'])) {
-                  continue; // a locally finalized day keeps its projection
-                }
-                if (t == 'day_result') {
-                  if (protectedKeys.contains(
-                    '${row['day_id']}|${row['algo_version']}',
-                  )) {
-                    continue; // locally finalized — never overwritten by import
-                  }
-                  importedDays?.add('${row['day_id']}');
-                }
-                // A LEGACY export's decoded_rr carries no rec_ts column; derive
-                // it from rr_ts_ms (= rec_ts*1000) so the NOT NULL PK column is
-                // always populated. SQLite storage classes are per VALUE, not per
-                // column, so a foreign export can hand back a String where
-                // INTEGER is declared — a bare `as num` there throws inside the
-                // transaction and takes the whole restore down with it. Leave a
-                // non-numeric value alone and let the row fail its own NOT NULL
-                // check instead of aborting every other row's import.
-                if (t == 'decoded_rr' && row['rec_ts'] == null) {
-                  final rrTsMs = row['rr_ts_ms'];
-                  if (rrTsMs is! num) {
-                    // Nothing to key this beat by. Dropping the one row keeps the
-                    // rest of the restore alive; letting it through would fail
-                    // the NOT NULL check inside the transaction and take every
-                    // other row on the page down with it.
-                    continue;
-                  }
-                  row['rec_ts'] = rrTsMs.toInt() ~/ 1000;
-                }
-                // A PRE-v47 EXPORT CARRIES NO `device_id` / `ts_ms`. Left
-                // alone they take the column DEFAULTS — ('', 0) — so every
-                // imported row would collide on ONE primary key and REPLACE
-                // the whole table down to a single row. Derive the key exactly
-                // as [_rekeyTableByDevice] does: the primary band, and the
-                // row's own time in ms. AFTER the rec_ts recovery above, which
-                // is what decoded_rr's key is built from.
-                // NAMED, not sniffed off `ts_ms`: `workout_route` declares that
-                // column too and is in the merge list, but it was never re-keyed —
-                // it has no `device_id` and no `rec_ts`, so a null `ts_ms` there
-                // falls to the `t0 is! num` drop below and the route point vanishes
-                // without a word. NOT NULL keeps that unreachable from a database
-                // this app wrote; the table NAME is what keeps it unreachable after
-                // the next schema change.
-                const deviceKeyed = {'samples', 'decoded_onehz', 'decoded_rr'};
-                if (deviceKeyed.contains(t) && row['ts_ms'] == null) {
-                  row['device_id'] ??= kPrimaryDeviceId;
-                  final t0 = row[t == 'samples' ? 'ts' : 'rec_ts'];
-                  // Non-numeric (storage classes are per VALUE in a foreign
-                  // export) ⇒ drop the one row rather than key it at 0, where
-                  // it would REPLACE another row that genuinely belongs there.
-                  if (t0 is! num) continue;
-                  row['ts_ms'] = t0.toInt() * 1000;
-                }
-                rows.add(row);
-              }
-              // REPLACE the beat set for a colliding second, don't patch it.
-              // decoded_rr is keyed by (rec_ts, beat_index), so a row-by-row
-              // replace-insert only overwrites the indices the foreign export
-              // actually reaches: importing [500] over a local [700, 710, 720]
-              // leaves beats 1 and 2 behind and hands that second a spliced
-              // foreign/local RR series — silently wrong RMSSD, out of a restore.
-              // [_queueDecodedOneHz] guards the identical hazard on the write
-              // path with a DELETE ahead of its inserts.
-              //
-              // Here the delete has to TRAIL the inserts and be bounded by the
-              // highest index this page carried, because a second's beats can
-              // straddle a page boundary: a leading `DELETE WHERE rec_ts = ?` on
-              // page 2 would wipe the beats page 1 just imported. Trailing +
-              // bounded is idempotent across the split — page 1 inserts 0,1 and
-              // clears >1; page 2 inserts 2,3 and clears >3 — and beat_index is
-              // dense by construction, so "everything past the last one" is
-              // exactly the stale local tail.
-              // v47: keyed on (device_id, ts_ms), the beat's real key — so the
-              // tail sweep can only ever clear the WRITING device's stale
-              // beats, never the other band's for the same second.
-              final highestBeat = <(Object?, Object?), int>{};
-              for (final row in rows) {
-                batch.insert(
-                  t,
-                  row,
-                  conflictAlgorithm: ConflictAlgorithm.replace,
-                );
-                copied++;
-                if (t == 'decoded_rr') {
-                  final idx = row['beat_index'];
-                  final key = (row['device_id'], row['ts_ms']);
-                  if (key.$2 != null && idx is num) {
-                    final n = idx.toInt();
-                    final prev = highestBeat[key];
-                    if (prev == null || n > prev) highestBeat[key] = n;
-                  }
-                }
-                if (++ops >= chunkOps) await flush();
-              }
-              for (final e in highestBeat.entries) {
-                batch.delete(
-                  'decoded_rr',
-                  where: 'device_id = ? AND ts_ms = ? AND beat_index > ?',
-                  whereArgs: [e.key.$1, e.key.$2, e.value],
-                );
-                if (++ops >= chunkOps) await flush();
-              }
-              await flush();
-              return nextSleepRevision;
-            }, exclusive: true);
-            counts[t] = copied; // only fully committed pages contribute
-            // Advance past the last row this page actually delivered. Read the
-            // cursor BEFORE dropping the page, and stop on a short page rather
-            // than issuing one more query to discover the end.
-            lastRowid = (page.last[rowidKey] as num).toInt();
-            if (page.length < pageSize) break;
-            page = await nextPage();
-          }
-          counts[t] = copied;
-        } catch (_) {
-          // One table's worth of loss, not the whole salvage. A user-initiated
-          // restore still rethrows: reporting a partial import as a success is
-          // the worst available outcome there, whereas a rebuild has no better
-          // file to fall back to.
-          if (!tolerant) rethrow;
-          counts.putIfAbsent(t, () => 0);
-        }
-      }
-    } catch (e) {
-      mergeError = e;
-    } finally {
-      await src.close();
-    }
-    // Old exports have only the daily weight table. Preserve those readings
-    // when restoring into an already-migrated install; modern per-reading IDs
-    // and existing days win rather than acquiring an extra aggregate reading.
-    try {
-      // Reset shares this SQL ordering. It either clears these follow-up
-      // writes afterwards, or the generation check refuses them before writing.
-      await db.transaction((txn) async {
-        if (!_restoreStillCurrent(restoreGeneration)) {
-          throw _restoreResetError;
-        }
-        if ((counts['body_weight'] ?? 0) > 0) {
-          await _seedLegacyWeightReadings(txn);
-        }
-        if ((counts['body_weight'] ?? 0) > 0 ||
-            (counts['body_weight_reading'] ?? 0) > 0) {
-          await BodyLogDb.rebuildDailyWeights(txn);
-        }
-        // Imported day results bypass the curve-encode seam. Rewind its
-        // forward-only cursor so legacy restored rows are encoded as well.
-        if ((counts['day_result'] ?? 0) > 0) {
-          await txn.insert('compute_freshness', {
-            'key': SeriesReencodeStore.kCursorKey,
-            'payload_json': jsonEncode({}),
-            'updated_at': DateTime.now().millisecondsSinceEpoch,
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-      }, exclusive: true);
-      // Last, so it can never be mistaken for a table row count by anything that
-      // walks this map in order.
-      if (importedDays != null && mergeError == null) {
-        counts['_days'] = importedDays.length;
-      }
-      // CalculationStore already serializes hydration with resetWith. Keep
-      // day-zone reads/installation inside SQL ordering too, so a later wipe
-      // cannot be followed by an old in-memory timeline installation: a wipe
-      // queued behind this transaction installs the empty timeline after it,
-      // and one already finished left nothing to read. Checking once after
-      // the install covers a reset that began before or during it.
-      await CalculationStore.hydrate();
-      await db.transaction((txn) async {
-        await DayZoneStore.hydrate(txn);
-        if (!_restoreStillCurrent(restoreGeneration)) {
-          throw _restoreResetError;
-        }
-      }, exclusive: true);
-    } catch (e) {
-      mergeError ??= e;
-    }
-    if (mergeError != null) throw DbImportException(mergeError, counts);
-    return counts;
-  }
-
-  /// A merge must not replace a durable correction with another history.
-  /// Refuse before copying any page; retain both complete stores for review.
-  static Future<void> _checkSleepCorrectionImport(
-    Database db,
-    Database src,
-  ) async {
-    Future<Set<String>> correctionDays(DatabaseExecutor ex) async {
-      try {
-        final rows = await ex.query(
-          'baselines',
-          columns: ['key'],
-          where: 'key LIKE ?',
-          whereArgs: ['sleep_correction:%'],
-        );
-        return {
-          for (final r in rows)
-            (r['key'] as String).substring('sleep_correction:'.length),
-        };
-      } on DatabaseException catch (e) {
-        if (e.isNoSuchTableError()) return {};
-        rethrow;
-      }
-    }
-
-    Future<Set<String>> storedDays(DatabaseExecutor ex) async {
-      final out = <String>{};
-      for (final (table, column) in [
-        ('day_result', 'day_id'),
-        ('sleep_override', 'day_id'),
-        ('metric_series', 'date'),
-        ('metric_series_version', 'date'),
-      ]) {
-        try {
-          out.addAll(
-            (await ex.query(
-              table,
-              columns: [column],
-              distinct: true,
-            )).map((r) => r[column] as String),
-          );
-        } on DatabaseException catch (e) {
-          if (!e.isNoSuchTableError()) rethrow;
-        }
-      }
-      try {
-        final pins = await ex.query(
-          'sync_cursor',
-          columns: ['value'],
-          where: 'name = ?',
-          whereArgs: [FrozenHeadlineStore.kCursorKey],
-          limit: 1,
-        );
-        if (pins.isNotEmpty && pins.first['value'] is String) {
-          try {
-            final pin = jsonDecode(pins.first['value'] as String);
-            if (pin is Map && pin['day'] is String) {
-              out.add(pin['day'] as String);
-            }
-          } on FormatException {
-            // An unparseable display cache supplies no day to serve or merge.
-          }
-        }
-      } on DatabaseException catch (e) {
-        if (!e.isNoSuchTableError()) rethrow;
-      }
-      return out;
-    }
-
-    final current = await correctionDays(db);
-    final incoming = await correctionDays(src);
-    if (current.isEmpty && incoming.isEmpty) return;
-    final overlaps = current.intersection(await storedDays(src))
-      ..addAll(incoming.intersection(await storedDays(db)))
-      ..addAll(current.intersection(incoming));
-    if (overlaps.isNotEmpty) {
-      throw StateError(
-        'Backup overlaps corrected sleep history. Both stores are preserved; review the conflict before merging.',
-      );
-    }
   }
 
   static String localDayLabelNow() => todayLabel();

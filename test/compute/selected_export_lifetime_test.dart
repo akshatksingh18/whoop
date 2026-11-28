@@ -56,7 +56,7 @@ void main() {
     expect(boundary.live, hasLength(1));
     boundary.sourceId = boundary.live.keys.single;
     for (final day in ['2021-04-06', '2021-04-07']) {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({

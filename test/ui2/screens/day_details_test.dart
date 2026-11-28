@@ -262,7 +262,7 @@ void main() {
   late Database db;
   LocalRepositoryImpl repo() =>
       LocalRepositoryImpl(getProfileMap: () => profile);
-  Future<void> seed(Map<String, dynamic> naps) => LocalDb.putDayResult(
+  Future<void> seed(Map<String, dynamic> naps) => DayResultStore.put(
     dayId: today,
     algoVersion: kAlgoVersion,
     payloadJson: jsonEncode({'naps': naps}),
@@ -374,7 +374,7 @@ void main() {
   test(
     'sleep periods and totals reflect corrections before derivation',
     () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: today,
         algoVersion: kAlgoVersion,
         windowJson: '{}',
@@ -442,7 +442,7 @@ void main() {
       DateTime.parse(today).subtract(const Duration(days: 1)),
     );
     final previousBase = localDayStartSec(previous)!;
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: previous,
       algoVersion: kAlgoVersion,
       windowJson: '{}',
@@ -482,7 +482,7 @@ void main() {
       for (var i = 14; i >= 0; i--) {
         final date = dayLabelOf(DateTime.now().subtract(Duration(days: i)));
         final start = DateTime.parse(date).millisecondsSinceEpoch ~/ 1000;
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: kAlgoVersion - 1,
           finalized: true,

@@ -30,7 +30,7 @@ Future<void> seedDay(
   bool finalized = true,
   int algoVersion = 62,
 }) async {
-  await LocalDb.putDayResult(
+  await DayResultStore.put(
     dayId: day,
     algoVersion: algoVersion,
     payloadJson: jsonEncode({
@@ -192,7 +192,7 @@ void main() {
       // The trend series now carries the rescaled value.
       expect(await seriesValue('strain', '2026-07-09'), closeTo(9.03, 0.05));
       // …and so does the bundle the day-detail screen reads.
-      final row = await LocalDb.dayResult('2026-07-09');
+      final row = await DayResultStore.read('2026-07-09');
       expect((row!['algo_version'] as num).toInt(), kAlgoVersion);
       final scalars =
           (jsonDecode(row['payload_json'] as String) as Map)['scalars'] as Map;
@@ -211,7 +211,7 @@ void main() {
         // matches algo_version EXACTLY — the engine would then skip the day and
         // a partial patch would stand in for a full re-derivation.
         expect(await seriesValue('strain', '2026-07-20'), closeTo(13.0, 1e-9));
-        final row = await LocalDb.dayResult('2026-07-20');
+        final row = await DayResultStore.read('2026-07-20');
         expect((row!['algo_version'] as num).toInt(), 62);
       },
     );
@@ -224,7 +224,7 @@ void main() {
         // built from per-sample HR that no longer exists, so it cannot be
         // rescaled — and a curve ending at 12.79 under a headline of 9.03 is
         // worse than no curve. The UI already renders a missing curve honestly.
-        final row = await LocalDb.dayResult('2026-07-09');
+        final row = await DayResultStore.read('2026-07-09');
         final payload = jsonDecode(row!['payload_json'] as String) as Map;
         final series = payload['series'] as Map?;
         expect(series?['strain_curve'], isNull);

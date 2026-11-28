@@ -50,7 +50,7 @@ void main() {
     // Yesterday's finalized bundle exists and has a real (different) steps
     // figure — this is what the old code would have silently surfaced as
     // "today's steps" via _bundleForDate's latest-complete-day fallback.
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: yesterday,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
@@ -82,7 +82,7 @@ void main() {
 
   test("once today's own day_result exists, getDayStrain's steps come from "
       "today's own bundle again (the fallback path is bypassed)", () async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: today,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({

@@ -25,7 +25,7 @@ abstract final class ComputeFreshnessStore {
 
   static Future<void> refresh() async {
     final raw = await DiagnosticsStore.rawStats();
-    final recent = await LocalDb.recentDayResults(30);
+    final recent = await DayResultStore.recent(30);
     final rolling = await MetricSeriesStore.baseline('rolling');
     final cross = await MetricSeriesStore.baseline('crossday');
     final today = LocalDb.localDayLabelNow();

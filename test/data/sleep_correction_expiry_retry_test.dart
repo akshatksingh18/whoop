@@ -22,7 +22,7 @@ void main() {
       '$action survives first-read expiry and releases the actual shared retry',
       () async {
         final start = localDayStartSec(day)!;
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion - 1,
           payloadJson: jsonEncode({
@@ -58,7 +58,7 @@ void main() {
           72,
           explanation: {'authored': 'retained pin'},
         );
-        final before = (await LocalDb.dayResult(day))!;
+        final before = (await DayResultStore.read(day))!;
         final ts = start + 12 * 3600;
         await LocalDb.insertRecord(
           RawRecord(

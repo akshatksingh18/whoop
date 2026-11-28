@@ -227,7 +227,7 @@ void main() {
       final snapshot = await LocalDb.exportCopy();
       await LocalDb.wipeAll();
       await BodyLogDb.putWeight(date, 70, 'kg', at: DateTime(2026, 9, 1, 7));
-      await LocalDb.importFromDbFile(snapshot);
+      await BackupImportStore.importFromFile(snapshot);
       final readings = await BodyLogDb.readingsOn(date);
       expect(readings.length, 2);
       expect(readings.first.kg, 70);

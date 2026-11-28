@@ -45,7 +45,7 @@ void main() {
     }
     await DerivationEngine().run(const Profile(), force: true);
     final payload =
-        jsonDecode((await LocalDb.dayResult(day))!['payload_json'] as String)
+        jsonDecode((await DayResultStore.read(day))!['payload_json'] as String)
             as Map;
     final stats = payload['hr_stats'] as Map;
     expect(stats['max'], isNull);

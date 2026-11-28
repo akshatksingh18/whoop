@@ -35,7 +35,7 @@ void main() {
         'created_at': 1,
       });
       final session = await SessionStore.byId('authored-history');
-      final identity = await LocalDb.deviceRow();
+      final identity = await DeviceStore.row();
       expect(session, isNotNull);
       expect(identity?['remote_id'], 'authored-device');
       final app = AppState.forTesting()..paired = await PairedDevice.load();
@@ -55,7 +55,7 @@ void main() {
       await t.tap(find.text('Keep it paired'));
       await t.pumpAndSettle();
       expect(app.paired?.remoteId, 'authored-device');
-      expect(await LocalDb.deviceRow(), identity);
+      expect(await DeviceStore.row(), identity);
       expect(find.byType(DeviceDetail), findsOneWidget);
 
       await reveal(t, forget);

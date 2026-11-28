@@ -38,7 +38,7 @@ void main() {
           );
           final two = mode == 'two-drivers';
           final score = (100 / (1 + math.exp(-(two ? 1.2 : 1.0)))).round();
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

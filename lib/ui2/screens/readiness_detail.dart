@@ -23,7 +23,7 @@ import 'metric_detail.dart';
 /// it was measured, the day has no record, or the stored note gives no reason.
 Future<String?> hrvMissingReason(String? day) async {
   if (day == null) return null;
-  final payload = (await LocalDb.dayResult(day))?['payload_json'];
+  final payload = (await DayResultStore.read(day))?['payload_json'];
   if (payload is! String) return null;
   final b = jsonDecode(payload);
   final clin = b is Map ? b['clinical'] : null;
@@ -92,7 +92,7 @@ class ReadinessData {
   /// (`respiration.rsa.note`), in plain words. Null when it was measured.
   static Future<String?> _breathingNote(String? day) async {
     if (day == null) return null;
-    final payload = (await LocalDb.dayResult(day))?['payload_json'];
+    final payload = (await DayResultStore.read(day))?['payload_json'];
     if (payload is! String) return null;
     final b = jsonDecode(payload);
     if (b is! Map) return null;
@@ -109,7 +109,7 @@ class ReadinessData {
   /// repository accessor exists and this is the only screen that wants it.
   static Future<Map<String, dynamic>?> _absentDiag(String? day) async {
     if (day == null) return null;
-    final payload = (await LocalDb.dayResult(day))?['payload_json'];
+    final payload = (await DayResultStore.read(day))?['payload_json'];
     if (payload is! String || !payload.contains('"readiness_absent_diag"')) {
       return null;
     }
@@ -130,7 +130,7 @@ class ReadinessData {
     if (day == null) return const [];
     Map? comp = original?['composite'] as Map?;
     if (original == null) {
-      final payload = (await LocalDb.dayResult(day))?['payload_json'];
+      final payload = (await DayResultStore.read(day))?['payload_json'];
       if (payload is! String) return const [];
       final b = jsonDecode(payload);
       final clin = b is Map ? b['clinical'] : null;
@@ -458,7 +458,7 @@ class _ReadinessDetailState extends State<ReadinessDetail> with RevisionReload {
     _gaps[day] = '…';
     String why;
     try {
-      final row = await LocalDb.dayResult(day);
+      final row = await DayResultStore.read(day);
       final payload = row?['payload_json'];
       Map<String, dynamic>? diag;
       if (payload is String && payload.contains('"readiness_absent_diag"')) {

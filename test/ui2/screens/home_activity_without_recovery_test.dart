@@ -43,7 +43,7 @@ void main() {
         addTearDown(theme.dispose);
         addTearDown(units.dispose);
         final db = (await t.runAsync(() async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

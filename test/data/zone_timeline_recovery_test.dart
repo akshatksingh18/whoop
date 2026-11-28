@@ -55,7 +55,7 @@ void main() {
     'Initial zone context extends to the oldest retained label and instant without rewriting evidence',
     () async {
       final db = await LocalDb.instance;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2021-04-04',
         algoVersion: 101,
         payloadJson: '{}',

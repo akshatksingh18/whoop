@@ -53,7 +53,7 @@ void main() {
             ),
             Sample(tsEpoch: ts, counter: 1, hr: 60, ax: 0, ay: 0, az: 1),
           );
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson:
@@ -104,9 +104,9 @@ void main() {
           expect(retry.running, false);
           expect(await db.query('decoded_onehz'), raw);
           expect(await db.query('decoded_rr'), beats);
-          expect((await LocalDb.dayResult(day))!['rhr'], 55);
+          expect((await DayResultStore.read(day))!['rhr'], 55);
           expect(
-            (await LocalDb.dayResult(day))!['window_json'],
+            (await DayResultStore.read(day))!['window_json'],
             '{"authored":"retain this window"}',
           );
         },

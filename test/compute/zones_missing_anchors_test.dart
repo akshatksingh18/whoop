@@ -28,7 +28,7 @@ void main() {
         final repo = LocalRepositoryImpl(
           getProfileMap: () => {if (mode != 'age-missing') 'age': 30},
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: todayLabel(),
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({'device_family': 'gen4'}),

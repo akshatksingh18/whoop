@@ -6,9 +6,9 @@
 //  2. prune BY REC_TS — StorageRetentionStore.pruneDecodedBefore deletes
 //     decoded_rr by its rec_ts key (no counter subquery, no orphan sweep) and
 //     keeps recent beats.
-//  3. importFromDbFile FINALIZED protection — a foreign export never overwrites
-//     a locally-finalized (day_id, algo_version) day_result row; non-finalized
-//     rows keep the merge-REPLACE behavior.
+//  3. BackupImportStore.importFromFile FINALIZED protection — a foreign export
+//     never overwrites a locally-finalized (day_id, algo_version) day_result
+//     row; non-finalized rows keep the merge-REPLACE behavior.
 //  4. schema smoke — a fresh onCreate database passes schemaHealth(). (A true
 //     old-version fixture upgrade is too brittle to hand-build here; the
 //     fresh-create + health assertion is the sanctioned fallback.)
@@ -202,13 +202,13 @@ void main() {
     () async {
       const v =
           9001; // scratch version, wont collide with other tests in this file
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-08-01',
         algoVersion: v,
         payloadJson: '{"real": true}',
         windowJson: '{}',
       );
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-08-02',
         algoVersion: v,
         payloadJson: '{"skipped": true, "reason": "test threw"}',
@@ -216,7 +216,7 @@ void main() {
         skipped: true,
       );
 
-      final ids = await LocalDb.dayResultIds(v);
+      final ids = await DayResultStore.ids(v);
       expect(
         ids.contains('2026-08-01'),
         isTrue,
@@ -234,17 +234,17 @@ void main() {
   );
 
   test(
-    'importFromDbFile never overwrites a locally-FINALIZED day_result',
+    'BackupImportStore.importFromFile never overwrites a locally-FINALIZED day_result',
     () async {
       const v = 30;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-07-01',
         algoVersion: v,
         payloadJson: '{"src":"local-finalized"}',
         windowJson: '{}',
         finalized: true,
       );
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-07-02',
         algoVersion: v,
         payloadJson: '{"src":"local-open"}',
@@ -282,11 +282,11 @@ void main() {
       }
       await src.close();
 
-      final counts = await LocalDb.importFromDbFile(srcPath);
+      final counts = await BackupImportStore.importFromFile(srcPath);
       expect(counts['day_result'], 2); // finalized collision skipped
 
       Future<String> payload(String day) async =>
-          (await LocalDb.dayResult(day))!['payload_json'] as String;
+          (await DayResultStore.read(day))!['payload_json'] as String;
       // Locally finalized → protected.
       expect(await payload('2026-07-01'), '{"src":"local-finalized"}');
       // Non-finalized → merge-REPLACE (import wins).

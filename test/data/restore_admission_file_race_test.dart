@@ -27,7 +27,7 @@ void main() {
             : exported;
         final bytes = await source.readAsBytes();
 
-        final restore = LocalDb.importFromDbFile(source.path);
+        final restore = BackupImportStore.importFromFile(source.path);
         final rejected = expectLater(
           restore,
           throwsA(
@@ -44,7 +44,7 @@ void main() {
 
         expect(await JournalStore.entries(date: day), isEmpty);
         expect(await source.readAsBytes(), bytes);
-        await LocalDb.importFromDbFile(source.path);
+        await BackupImportStore.importFromFile(source.path);
         final row = (await JournalStore.entries(date: day)).single;
         expect(row['note'], note);
         expect(row['tags_json'], '["travel"]');

@@ -20,7 +20,7 @@ class _PairApp extends AppState {
   Future<void> openSession() async {
     opened++;
     pairedAtOpen = paired;
-    rowAtOpen = await LocalDb.deviceRow();
+    rowAtOpen = await DeviceStore.row();
   }
 }
 
@@ -108,7 +108,7 @@ void main() {
       picked = result == 'null' ? null : '';
       refusePicker = result == 'refused';
       await expectLater(app.pairViaAccessorySetup(), throwsException);
-      expect(await LocalDb.deviceRow(), isNull);
+      expect(await DeviceStore.row(), isNull);
       expect(
         (await SharedPreferences.getInstance()).getKeys(),
         isNot(contains('paired_remote_id')),
@@ -129,7 +129,7 @@ void main() {
           generation: 'gen4',
         );
         app.paired = await PairedDevice.load();
-        final before = await LocalDb.deviceRow();
+        final before = await DeviceStore.row();
         final db = await LocalDb.instance;
         await db.execute(
           "CREATE TRIGGER synthetic_pairing_refusal BEFORE INSERT ON device "
@@ -139,7 +139,7 @@ void main() {
           pair(entry, serial: 'SYNTHETIC NEW'),
           throwsA(anything),
         );
-        expect(await LocalDb.deviceRow(), before);
+        expect(await DeviceStore.row(), before);
         expect(app.paired?.remoteId, 'synthetic-old-band');
         expect(
           (await SharedPreferences.getInstance()).getString('paired_remote_id'),
@@ -167,7 +167,7 @@ void main() {
     () async {
       expect(await app.accessorySetupSupported(), false);
       expect(calls, isEmpty);
-      expect(await LocalDb.deviceRow(), isNull);
+      expect(await DeviceStore.row(), isNull);
     },
   );
 }

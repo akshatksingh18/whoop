@@ -80,7 +80,7 @@ void main() {
           final date = dayLabelOf(
             DateTime.fromMillisecondsSinceEpoch(start * 1000),
           );
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: date,
             algoVersion: 101,
             payloadJson: '{"authored":"retained finalized output"}',

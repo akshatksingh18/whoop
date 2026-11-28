@@ -27,7 +27,7 @@ void main() {
       final day = dayLabelOf(DateTime(now.year, now.month, now.day - 1));
       if (shape != 'missing') {
         await t.runAsync(
-          () => LocalDb.putDayResult(
+          () => DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: shape == 'malformed'
@@ -42,7 +42,7 @@ void main() {
           ),
         );
       }
-      final before = await t.runAsync(() => LocalDb.dayResult(day));
+      final before = await t.runAsync(() => DayResultStore.read(day));
       final db = await t.runAsync(() => LocalDb.instance);
       var held = false;
       try {
@@ -102,7 +102,7 @@ void main() {
           );
         }
       }
-      expect(await t.runAsync(() => LocalDb.dayResult(day)), equals(before));
+      expect(await t.runAsync(() => DayResultStore.read(day)), equals(before));
     });
   }
 }

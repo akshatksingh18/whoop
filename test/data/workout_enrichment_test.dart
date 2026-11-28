@@ -252,7 +252,7 @@ void main() {
           12,
         ).millisecondsSinceEpoch ~/
         1000;
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: yLabel,
       algoVersion: 1,
       payloadJson: jsonEncode({
@@ -296,7 +296,7 @@ void main() {
       final todayMidnight =
           DateTime(now.year, now.month, now.day).millisecondsSinceEpoch ~/ 1000;
       final t1 = todayMidnight + 3600;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: today,
         algoVersion: 1,
         payloadJson: jsonEncode({

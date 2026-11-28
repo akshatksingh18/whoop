@@ -17,7 +17,7 @@ void main() {
       'a refused first derivation read honours a concurrent stop: $stop',
       () async {
         const date = '2021-04-06';
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: kAlgoVersion,
           payloadJson: '{"scalars":{"rhr":61}}',

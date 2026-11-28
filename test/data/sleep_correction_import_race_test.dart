@@ -94,7 +94,7 @@ class SourceReadDatabase implements Database {
 
 const day = '2021-04-06';
 Future<void> originalNight() async {
-  await LocalDb.putDayResult(
+  await DayResultStore.put(
     dayId: day,
     algoVersion: 100,
     payloadJson: '{"scalars":{"readiness":72,"rmssd":44}}',
@@ -135,7 +135,7 @@ void main() {
       });
       Object? failure;
       try {
-        await LocalDb.importFromDbFile(backup);
+        await BackupImportStore.importFromFile(backup);
       } catch (e) {
         failure = e;
       } finally {
@@ -150,7 +150,7 @@ void main() {
       );
       expect((await SleepOverrideStore.getOverride(day))!['offset_ts'], 7200);
       expect((await SleepOverrideStore.correction(day))!['generation'], 1);
-      expect((await LocalDb.dayResult(day))!['readiness'], isNull);
+      expect((await DayResultStore.read(day))!['readiness'], isNull);
       expect(await FrozenHeadlineStore.read(), isNull);
       expect(failure, isA<DbImportException>());
       final error = failure as DbImportException;
@@ -170,7 +170,7 @@ void main() {
     final before = await SleepOverrideStore.correction(day);
     Object? failure;
     try {
-      await LocalDb.importFromDbFile(backup);
+      await BackupImportStore.importFromFile(backup);
     } catch (e) {
       failure = e;
     }
@@ -203,17 +203,17 @@ void main() {
       );
       try {
         await expectLater(
-          LocalDb.importFromDbFile(backup),
+          BackupImportStore.importFromFile(backup),
           throwsA(isA<DbImportException>()),
         );
       } finally {
         databaseFactory = factory;
       }
       final accepted = await SleepOverrideStore.correction('2021-04-07');
-      await LocalDb.importFromDbFile(backup);
+      await BackupImportStore.importFromFile(backup);
       expect(await SleepOverrideStore.correction('2021-04-07'), accepted);
-      expect((await LocalDb.dayResult('2021-04-07'))!['readiness'], isNull);
-      expect((await LocalDb.dayResult(day))!['readiness'], 72);
+      expect((await DayResultStore.read('2021-04-07'))!['readiness'], isNull);
+      expect((await DayResultStore.read(day))!['readiness'], 72);
     },
   );
   for (final table in ['lift_log', 'day_result']) {
@@ -228,14 +228,14 @@ void main() {
         });
         Object? failure;
         try {
-          await LocalDb.importFromDbFile(backup);
+          await BackupImportStore.importFromFile(backup);
         } catch (e) {
           failure = e;
         } finally {
           databaseFactory = factory;
         }
         expect(
-          await LocalDb.dayResult(day),
+          await DayResultStore.read(day),
           isNull,
           reason:
               'An older restore may not recreate data after the accepted reset',
@@ -263,7 +263,7 @@ void main() {
       );
       try {
         await expectLater(
-          LocalDb.importFromDbFile(backup),
+          BackupImportStore.importFromFile(backup),
           throwsA(isA<DbImportException>()),
         );
       } finally {
@@ -271,7 +271,7 @@ void main() {
       }
       final db = await LocalDb.instance;
       expect(await db.query('compute_freshness'), isEmpty);
-      expect(await LocalDb.dayResult(day), isNull);
+      expect(await DayResultStore.read(day), isNull);
       expect(await SleepOverrideStore.getOverride(day), isNull);
       expect(await FrozenHeadlineStore.read(), isNull);
       expect(await db.query('body_weight_reading'), isEmpty);
@@ -293,7 +293,7 @@ void main() {
       await entered.future;
       try {
         await expectLater(
-          LocalDb.importFromDbFile(backup),
+          BackupImportStore.importFromFile(backup),
           throwsA(
             isA<DbImportException>().having(
               (e) => e.records,
@@ -302,13 +302,13 @@ void main() {
             ),
           ),
         );
-        expect(await LocalDb.dayResult(day), isNull);
+        expect(await DayResultStore.read(day), isNull);
       } finally {
         release.complete();
         await reset;
       }
-      await LocalDb.importFromDbFile(backup);
-      expect((await LocalDb.dayResult(day))!['readiness'], 72);
+      await BackupImportStore.importFromFile(backup);
+      expect((await DayResultStore.read(day))!['readiness'], 72);
     },
   );
 
@@ -323,12 +323,12 @@ void main() {
       );
       try {
         await expectLater(LocalDb.wipeAll(), throwsA(isA<Exception>()));
-        expect((await LocalDb.dayResult(day))!['readiness'], 72);
+        expect((await DayResultStore.read(day))!['readiness'], 72);
       } finally {
         await db.execute('DROP TRIGGER refuse_restore_reset');
       }
-      await LocalDb.importFromDbFile(backup);
-      expect((await LocalDb.dayResult(day))!['readiness'], 72);
+      await BackupImportStore.importFromFile(backup);
+      expect((await DayResultStore.read(day))!['readiness'], 72);
     },
   );
 }

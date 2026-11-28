@@ -110,7 +110,7 @@ class PairedDevice {
   static Future<PairedDevice?> load() => _serialized(_load);
 
   static Future<PairedDevice?> _load() async {
-    final row = await LocalDb.deviceRow();
+    final row = await DeviceStore.row();
     final id = row?['remote_id'] as String?;
     if (id != null && id.isNotEmpty) {
       // Sanitize on read: drop any garbled value (e.g. "?*" junk persisted by
@@ -130,7 +130,7 @@ class PairedDevice {
     if (mirrored == null || mirrored.isEmpty) return null;
     final serial = cleanDeviceLabel(prefs.getString(_kSerial));
     final generation = _cleanGeneration(prefs.getString(_kGeneration));
-    await LocalDb.upsertDevice(
+    await DeviceStore.upsert(
       adapterId: generation,
       remoteId: mirrored,
       label: serial,
@@ -143,9 +143,9 @@ class PairedDevice {
   /// for a framed band (`gen4` / `gen5`) — the same value the `device` table
   /// stores as `adapter_id`, which is why it is passed straight through.
   /// Omitted, it leaves whatever the row already knows rather than blanking it
-  /// (`upsertDevice` COALESCEs), and a row that has never been told keeps
-  /// NULL, which every per-family metric reads as a refusal instead of
-  /// assuming gen4.
+  /// (`DeviceStore.upsert` COALESCEs), and a row that has never been told keeps
+  /// NULL, which every per-family metric reads as a refusal instead of assuming
+  /// gen4.
   static Future<void> save(
     String remoteId,
     String? serial, {
@@ -170,14 +170,14 @@ class PairedDevice {
     // Asked of the TABLE first, because that is the copy `load()` answers
     // from. Both copies are then written the same way, so the mirror cannot
     // heal a stale generation back over a corrected one.
-    final row = await LocalDb.deviceRow();
+    final row = await DeviceStore.row();
     final knownRemoteId =
         (row?['remote_id'] as String?) ?? prefs.getString(_kRemoteId);
     final sameDevice = knownRemoteId == remoteId;
     // A forget that landed while the reads above were in flight wins: this
     // save is describing a band the user has just told us to drop.
     if (epoch != _forgetEpoch) return;
-    await LocalDb.upsertDevice(
+    await DeviceStore.upsert(
       adapterId: gen,
       remoteId: remoteId,
       label: clean,
@@ -222,7 +222,7 @@ class PairedDevice {
       _kSerial: null,
       _kGeneration: null,
     });
-    await LocalDb.deleteDevice();
+    await DeviceStore.delete();
   }
 }
 

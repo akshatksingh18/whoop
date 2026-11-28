@@ -76,7 +76,7 @@ void main() {
       // Three nights, each with a real window, plus one with none.
       const base = 1_714_500_000; // arbitrary epoch seconds
       for (var i = 0; i < 3; i++) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: '2024-05-0${i + 1}',
           algoVersion: 66,
           payloadJson: '{}',
@@ -86,7 +86,7 @@ void main() {
           ),
         );
       }
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2024-05-04',
         algoVersion: 66,
         payloadJson: '{}',
@@ -120,7 +120,7 @@ void main() {
       'reads the BARE window map the engine and both importers write',
       () async {
         const onset = 1_714_000_000;
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: '2024-04-28',
           algoVersion: 66,
           payloadJson: '{}',
@@ -141,7 +141,7 @@ void main() {
     );
 
     test('honours the day limit and survives malformed window_json', () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2024-05-05',
         algoVersion: 66,
         payloadJson: '{}',
@@ -156,7 +156,7 @@ void main() {
     test(
       'reads the LATEST algo version for a day, not every version',
       () async {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: '2024-05-01',
           algoVersion: 67,
           payloadJson: '{}',

@@ -213,11 +213,12 @@ Future<RoughNight?> loadRoughNight(
   // day another vendor's algorithm derived is not the same measurement.
   // A picture may splice two algorithms; a statistic may not.
   //
-  // Read ONCE for all four series rather than passing `measuredOnly: true`
-  // four times: that flag inlines the mask as a subquery whose expensive half
-  // is a LIKE over whole `day_result` bundles, so four series meant four full
-  // scans of the user's history for one answer (see LocalDb.importedDates).
-  final imported = await LocalDb.importedDates();
+  // Read ONCE for all four series rather than passing `measuredOnly: true` four
+  // times: that flag inlines the mask as a subquery whose expensive half is a
+  // LIKE over whole `day_result` bundles, so four series meant four full scans
+  // of the user's history for one answer (see
+  // DayProvenanceStore.importedDates).
+  final imported = await DayProvenanceStore.importedDates();
   final series = <String, Map<String, double>>{};
   for (final key in const [_kRhr, _kRmssd, _kDip]) {
     series[key] = {

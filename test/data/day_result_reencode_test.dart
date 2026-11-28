@@ -341,10 +341,11 @@ void main() {
   });
 
   test('an import rewinds a finished walk', () async {
-    // importFromDbFile writes day_result rows with a raw batch.insert, so they
-    // arrive in whatever shape the source device stored. The walk latches
-    // `done` and is forward-only, so without a rewind those rows would keep the
-    // legacy shape forever and the import would silently undo the compression.
+    // BackupImportStore.importFromFile writes day_result rows with a raw
+    // batch.insert, so they arrive in whatever shape the source device stored.
+    // The walk latches `done` and is forward-only, so without a rewind those
+    // rows would keep the legacy shape forever and the import would silently
+    // undo the compression.
     //
     // Driven through the REAL import rather than a hand-written cursor reset:
     // written the other way, this test still passed with the rewind deleted
@@ -380,7 +381,7 @@ void main() {
     });
     await src.close();
 
-    final counts = await LocalDb.importFromDbFile(srcPath);
+    final counts = await BackupImportStore.importFromFile(srcPath);
     expect(counts['day_result'], 1);
 
     var total = 0;

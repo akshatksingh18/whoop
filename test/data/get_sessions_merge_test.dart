@@ -61,7 +61,7 @@ void main() {
     });
 
     // A day derived before the key was dropped, still carrying a bout.
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: date,
       algoVersion: 1,
       payloadJson: jsonEncode({

@@ -94,7 +94,7 @@ void main() {
         (0, 240.0),
         (1, 245.0),
       ]) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: label(sample.$1),
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({
@@ -140,7 +140,7 @@ void main() {
           ),
         );
       }
-      await LocalDb.upsertDevice(adapterId: 'gen4');
+      await DeviceStore.upsert(adapterId: 'gen4');
       await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
       final logs = <String>[], done = <String>[];
       final engine = DerivationEngine(background: true, log: logs.add);
@@ -159,7 +159,7 @@ void main() {
         reason: logs.join('\n'),
       );
       expect(done, [day]);
-      final row = (await LocalDb.dayResult(day))!;
+      final row = (await DayResultStore.read(day))!;
       expect(row['partial'], 0);
       expect(row['skipped'], 0);
       final bundle = SeriesCodec.decodePayloadJson(
@@ -209,7 +209,7 @@ void main() {
         1,
         reason: logs.join('\n'),
       );
-      final row = (await LocalDb.dayResult(day))!;
+      final row = (await DayResultStore.read(day))!;
       final bundle = SeriesCodec.decodePayloadJson(
         row['payload_json'] as String,
       )!;

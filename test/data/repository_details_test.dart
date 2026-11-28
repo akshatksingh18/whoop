@@ -127,7 +127,7 @@ void main() {
   });
   tearDownAll(LocalDb.close);
   Future<void> seed() async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(payload),

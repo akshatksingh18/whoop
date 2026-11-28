@@ -81,7 +81,7 @@ void main() {
     db = await LocalDb.instance;
   });
   Future<void> seed(String date, List<Map<String, dynamic>> naps) =>
-      LocalDb.putDayResult(
+      DayResultStore.put(
         dayId: date,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({

@@ -172,7 +172,7 @@ void main() {
       for (final table in expected.keys) {
         expect(await db.query(table), isEmpty);
       }
-      await LocalDb.importFromDbFile(restored.path);
+      await BackupImportStore.importFromFile(restored.path);
       db = await LocalDb.instance;
       for (final table in expected.keys) {
         expect(await db.query(table), expected[table]);
@@ -233,8 +233,8 @@ void main() {
       });
       await legacy.close();
       await LocalDb.instance;
-      await LocalDb.importFromDbFile(legacyPath);
-      await LocalDb.importFromDbFile(legacyPath);
+      await BackupImportStore.importFromFile(legacyPath);
+      await BackupImportStore.importFromFile(legacyPath);
       final readings = await (await LocalDb.instance).query(
         'body_weight_reading',
       );

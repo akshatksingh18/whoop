@@ -62,7 +62,7 @@ void main() {
         );
         expect(completed, [day]);
         expect(engine.running, false);
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         final payload = jsonDecode(row['payload_json'] as String) as Map;
         final scalars = payload['scalars'] as Map;
         final window = jsonDecode(row['window_json'] as String) as Map;
@@ -87,7 +87,7 @@ void main() {
         }
         expect(row['rmssd'], isNull, reason: 'No beat intervals were measured');
         expect(row['readiness'], isNull);
-        expect(await LocalDb.dayResult(previous), isNull);
+        expect(await DayResultStore.read(previous), isNull);
         expect(await CursorStore.read('authored-unrelated-retention'), 'keep');
         expect(jsonEncode(sub.toJson()), input);
         expect(await db.query('raw_archive'), isEmpty);

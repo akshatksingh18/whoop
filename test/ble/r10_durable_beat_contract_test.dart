@@ -216,7 +216,7 @@ void main() {
   test(
     'COV-48 R10 replay preserves foreign device beats and reopens without duplicate primary beats',
     () async {
-      await LocalDb.upsertDevice(
+      await DeviceStore.upsert(
         id: 'authored-foreign-device',
         adapterId: 'gen4',
       );

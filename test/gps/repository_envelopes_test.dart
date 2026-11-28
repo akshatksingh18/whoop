@@ -28,7 +28,7 @@ void main() {
   });
   tearDownAll(LocalDb.close);
   Future<void> seed(Map<String, dynamic> payload) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({'date': day, ...payload}),
@@ -354,7 +354,7 @@ void main() {
         );
       }
       expect(await repo.getChart('hr'), expected);
-      final saved = await LocalDb.dayResult(day);
+      final saved = await DayResultStore.read(day);
       expect(saved, isNotNull);
       expect(await db.query('decoded_onehz'), isEmpty);
     },
@@ -406,7 +406,7 @@ void main() {
             ],
           },
         });
-        final original = (await LocalDb.dayResult(day))!['payload_json'];
+        final original = (await DayResultStore.read(day))!['payload_json'];
         final db = await LocalDb.instance;
         final batch = db.batch();
         void rows(int at, int count, {bool secondary = false}) {
@@ -438,7 +438,7 @@ void main() {
           await db.query('decoded_onehz'),
           hasLength(c.primary + c.secondary + 40),
         );
-        expect((await LocalDb.dayResult(day))!['payload_json'], original);
+        expect((await DayResultStore.read(day))!['payload_json'], original);
       },
     );
   }

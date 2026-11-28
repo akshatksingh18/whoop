@@ -65,7 +65,7 @@ void main() {
       test(
         'unpaired restore owner=$owner native completion refusal=$refusal preserves history and permits the next wake',
         () async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: '2021-04-06',
             algoVersion: kAlgoVersion,
             payloadJson: '{"scalars":{"rhr":57}}',

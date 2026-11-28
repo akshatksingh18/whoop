@@ -50,7 +50,7 @@ void main() {
           date,
           kAlgoVersion,
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({
@@ -68,7 +68,7 @@ void main() {
           finalized: false,
           series: {'rhr': 60, 'rmssd': 41, 'readiness': 72},
         );
-        final banked = await LocalDb.dayResult(date);
+        final banked = await DayResultStore.read(date);
         final db = await LocalDb.instance;
         final series = await db.query(
           'metric_series',
@@ -112,7 +112,7 @@ void main() {
           await SleepIntermediateStore.candidate(date, kAlgoVersion),
           cached,
         );
-        expect(await LocalDb.dayResult(date), banked);
+        expect(await DayResultStore.read(date), banked);
         expect(
           await db.query(
             'metric_series',
@@ -149,7 +149,7 @@ void main() {
               az: 1,
             ),
           );
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: older,
             algoVersion: kAlgoVersion,
             payloadJson: '{"authored":"keep banked history"}',
@@ -158,8 +158,8 @@ void main() {
             rmssd: 41,
             finalized: true,
           );
-          final banked = await LocalDb.dayResult(older);
-          await LocalDb.putDayResult(
+          final banked = await DayResultStore.read(older);
+          await DayResultStore.put(
             dayId: date,
             algoVersion: kAlgoVersion,
             payloadJson: '{"scalars":{}}',
@@ -203,7 +203,7 @@ void main() {
           if (kind != 'valid-absent') {
             expect(after['payload_json'], isNot(original));
           }
-          final row = (await LocalDb.dayResult(date))!;
+          final row = (await DayResultStore.read(date))!;
           expect(row['skipped'], 0);
           expect(row['partial'], 0);
           expect(
@@ -214,7 +214,7 @@ void main() {
           expect(row['rhr'], isNull);
           expect(row['rmssd'], isNull);
           expect(row['readiness'], isNull);
-          expect(await LocalDb.dayResult(older), banked);
+          expect(await DayResultStore.read(older), banked);
           expect(await LocalDb.lastDecodedRecTs(), ts);
           expect(
             await MetricSeriesStore.baseline('sleep_user_profile'),
@@ -230,9 +230,9 @@ void main() {
               logs,
               contains(contains('baseline unchanged — rescan skipped')),
             );
-            expect(await LocalDb.dayResult(date), row);
+            expect(await DayResultStore.read(date), row);
           }
-          expect(await LocalDb.dayResult(older), banked);
+          expect(await DayResultStore.read(older), banked);
           expect(await LocalDb.lastDecodedRecTs(), ts);
           expect(engine.running, false);
         },

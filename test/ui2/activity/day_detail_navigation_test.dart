@@ -67,7 +67,7 @@ void main() {
                     1000;
                 final known = i < 3;
                 final strain = known ? 4.2 + i : null;
-                await LocalDb.putDayResult(
+                await DayResultStore.put(
                   dayId: labels[i],
                   algoVersion: 102,
                   finalized: known,

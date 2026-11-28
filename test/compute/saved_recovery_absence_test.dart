@@ -50,7 +50,7 @@ void main() {
           }, day: day)!;
           expect((snapshot['values'] as Map).containsKey('hrv'), false);
           expect((snapshot['values'] as Map).containsKey('resp'), false);
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({
@@ -117,7 +117,7 @@ void main() {
           expect(await CursorStore.read(FrozenHeadlineStore.kCursorKey), pin);
           final live =
               jsonDecode(
-                    (await LocalDb.dayResult(day))!['payload_json'] as String,
+                    (await DayResultStore.read(day))!['payload_json'] as String,
                   )
                   as Map;
           expect((live['scalars'] as Map)['readiness'], 56);

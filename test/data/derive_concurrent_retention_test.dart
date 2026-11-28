@@ -34,7 +34,7 @@ void main() {
       () async {
         final ts = localDayStartSec(newer)! + 43200;
         for (final day in [older, newer]) {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({
@@ -111,7 +111,7 @@ void main() {
         final start = localDayStartSec(older)!;
         for (final (index, day) in [(1, older), (2, newer)]) {
           final ts = localDayStartSec(day)! + 43200;
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({
@@ -156,7 +156,7 @@ void main() {
             source: source,
           );
         }
-        final saved = await LocalDb.dayResult(older);
+        final saved = await DayResultStore.read(older);
         final series = await db.query(
           'metric_series',
           where: 'date = ?',
@@ -209,7 +209,7 @@ void main() {
         expect(engine.snapshot()['concurrency'], 1);
         expect(engine.running, false);
         expect(engine.snapshot()['active_days'], isEmpty);
-        expect(await LocalDb.dayResult(older), saved);
+        expect(await DayResultStore.read(older), saved);
         expect(
           await db.query(
             'metric_series',
@@ -239,7 +239,7 @@ void main() {
         );
         // An ordinary repeat cannot regenerate pruned bytes or erase the result.
         expect(await engine.run(const Profile(), heavy: true), 1);
-        expect(await LocalDb.dayResult(older), saved);
+        expect(await DayResultStore.read(older), saved);
         expect(await db.query('sleep_override'), overrides);
         expect(await db.query('sleep_nap'), naps);
       },

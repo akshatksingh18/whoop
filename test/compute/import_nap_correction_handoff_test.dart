@@ -68,7 +68,7 @@ void main() {
         );
         expect(completed, [day]);
         expect(engine.running, false);
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         final bundle = jsonDecode(row['payload_json'] as String) as Map;
         final db = await LocalDb.instance;
         final series = await db.query('metric_series');
@@ -96,7 +96,7 @@ void main() {
         expect(row['readiness'], isNull);
         expect(row['rmssd'], isNull);
         expect(await SleepNapStore.edits(day), edits);
-        expect(await LocalDb.dayResult(day), row);
+        expect(await DayResultStore.read(day), row);
         expect(await db.query('metric_series'), series);
         expect(await CursorStore.read('authored-unrelated-retention'), 'keep');
         expect(

@@ -37,7 +37,7 @@ void main() {
         // absolute stamps together. The incomplete case has only a 30-min wake
         // tail, below the existing one-hour headline settle margin.
         final count = mode == 'incomplete' ? 18900 : source.tsSec.length;
-        await LocalDb.upsertDevice(adapterId: 'gen4');
+        await DeviceStore.upsert(adapterId: 'gen4');
         await LocalDb.insertRecordsBatch(
           [
             for (var i = 0; i < count; i++)
@@ -99,7 +99,7 @@ void main() {
           1,
           reason: logs.join('\n'),
         );
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         final bundle = jsonDecode(row['payload_json'] as String) as Map;
         // The current writer stores SleepWindow.toJson() directly; this is not
         // the older Metric envelope. Check the real persisted bounds before

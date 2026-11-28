@@ -294,7 +294,7 @@ void main() {
       // which was VACUOUS: `got` is built by the local helper above, which
       // seeds every key unconditionally, so it could never fail whatever the
       // derivation did.)
-      final row = await LocalDb.dayResult('2026-04-11');
+      final row = await DayResultStore.read('2026-04-11');
       final bundle =
           jsonDecode(row!['payload_json'] as String) as Map<String, dynamic>;
       final steps = bundle['steps'] as Map<String, dynamic>;

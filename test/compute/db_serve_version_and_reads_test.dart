@@ -26,7 +26,7 @@ import 'package:whoop_companion/data/db.dart';
 import 'package:whoop_companion/data/day_label.dart';
 
 Future<void> _put(String dayId, int version, {double? readiness}) =>
-    LocalDb.putDayResult(
+    DayResultStore.put(
       dayId: dayId,
       algoVersion: version,
       payloadJson: '{"v":$version}',
@@ -97,7 +97,7 @@ void main() {
       // The row a NEWER build left behind before the user rolled back.
       await _put(day, kAlgoVersion + 1, readiness: 99);
 
-      final row = await LocalDb.dayResult(day);
+      final row = await DayResultStore.read(day);
       expect(row, isNotNull);
       expect(
         (row!['algo_version'] as num).toInt(),
@@ -108,11 +108,11 @@ void main() {
 
       // Every other reader has to agree with dayResult(), or two screens end up
       // showing different numbers for the same day.
-      final recent = await LocalDb.recentDayResults(10);
+      final recent = await DayResultStore.recent(10);
       final served = recent.firstWhere((r) => r['day_id'] == day);
       expect((served['algo_version'] as num).toInt(), kAlgoVersion);
 
-      expect(await LocalDb.availableDayIds(), contains(day));
+      expect(await DayResultStore.availableDayIds(), contains(day));
     });
 
     test(
@@ -134,15 +134,15 @@ void main() {
       () async {
         const day = '2026-08-11';
         await _put(day, kAlgoVersion + 3, readiness: 12);
-        expect(await LocalDb.dayResult(day), isNull);
-        expect(await LocalDb.availableDayIds(), isNot(contains(day)));
+        expect(await DayResultStore.read(day), isNull);
+        expect(await DayResultStore.availableDayIds(), isNot(contains(day)));
       },
     );
 
     test('an OLDER version is still served — that is not the bug', () async {
       const day = '2026-08-09';
       await _put(day, kAlgoVersion - 2, readiness: 44);
-      final row = await LocalDb.dayResult(day);
+      final row = await DayResultStore.read(day);
       expect(row, isNotNull);
       expect((row!['algo_version'] as num).toInt(), kAlgoVersion - 2);
     });
@@ -227,7 +227,7 @@ void main() {
       'dataHistoryDays reports derived days and their metric counts, newest first',
       () async {
         for (final d in ['2026-09-01', '2026-09-02']) {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: d,
             algoVersion: kAlgoVersion,
             payloadJson: '{"date":"$d"}',

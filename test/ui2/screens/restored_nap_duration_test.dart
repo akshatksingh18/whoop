@@ -53,7 +53,7 @@ void main() {
         final db = await LocalDb.instance;
         final other = (await t.runAsync(() => db.query('day_result')))!;
         final counts = (await t.runAsync(
-          () => LocalDb.importFromDbFile(backup.path),
+          () => BackupImportStore.importFromFile(backup.path),
         ))!;
         expect(counts['day_result'], 1);
         final saved = (await t.runAsync(() => db.query('day_result')))!;

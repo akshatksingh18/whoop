@@ -26,7 +26,7 @@ void main() {
             final db = await LocalDb.instance;
             for (final (index, date) in [(1, older), (2, newer)]) {
               final ts = localDayStartSec(date)! + 12 * 3600;
-              await LocalDb.putDayResult(
+              await DayResultStore.put(
                 dayId: date,
                 algoVersion: kAlgoVersion,
                 payloadJson: jsonEncode({
@@ -73,7 +73,7 @@ void main() {
                 ),
               );
             }
-            final before = await LocalDb.dayResult(older);
+            final before = await DayResultStore.read(older);
             final series = await db.query(
               'metric_series',
               where: 'date=?',
@@ -128,7 +128,7 @@ void main() {
                 ),
               ),
             );
-            expect(await LocalDb.dayResult(older), before);
+            expect(await DayResultStore.read(older), before);
             expect(
               await db.query(
                 'metric_series',
@@ -152,7 +152,7 @@ void main() {
               await engine.run(const Profile(), heavy: true, force: true),
               1,
             );
-            expect(await LocalDb.dayResult(older), before);
+            expect(await DayResultStore.read(older), before);
             expect(await db.query('decoded_onehz'), latest);
             expect(engine.running, false);
           },

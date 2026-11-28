@@ -105,7 +105,7 @@ void main() {
   test(
     'fresh measured counts replace a stale calculated total without adding',
     () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: todayLabel(),
         algoVersion: kAlgoVersion,
         windowJson: '{}',
@@ -183,7 +183,7 @@ void main() {
   test(
     'a stored hardware counter remains a fallback without span measurements',
     () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: todayLabel(),
         algoVersion: kAlgoVersion,
         windowJson: '{}',

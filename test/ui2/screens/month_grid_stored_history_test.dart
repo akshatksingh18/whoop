@@ -32,7 +32,7 @@ void main() {
             final day = dayLabelOf(
               DateTime(now.year, now.month, now.day - age),
             );
-            await LocalDb.putDayResult(
+            await DayResultStore.put(
               dayId: day,
               algoVersion: kAlgoVersion,
               payloadJson: '{}',

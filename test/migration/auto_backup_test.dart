@@ -506,7 +506,8 @@ void main() {
 
     test('a backup is sealed on disk and opens back to the database', () async {
       // Encrypted on disk, and what the passphrase opens is the gzipped
-      // snapshot — which `importFromDbFile` inflates by magic bytes.
+      // snapshot — which `BackupImportStore.importFromFile` inflates by magic
+      // bytes.
       final outcome = await runBackup(
         passphrase: _pass,
         iterations: _kIt,
@@ -737,7 +738,8 @@ void main() {
       expect(outcome.succeeded, isTrue, reason: outcome.error);
       expect(outcome.path, endsWith('.osbk'));
       // The restore path `runImport` takes: decrypt to a temp `.db`, then
-      // `importFromDbFile`, which inflates the gzip by magic bytes.
+      // `BackupImportStore.importFromFile`, which inflates the gzip by magic
+      // bytes.
       final picked = File(p.join(tmp.path, 'restore-picked.db'));
       await decryptBackupFile(File(outcome.path!), picked, _kPass);
 
@@ -747,7 +749,7 @@ void main() {
         isEmpty,
       );
 
-      final counts = await LocalDb.importFromDbFile(picked.path);
+      final counts = await BackupImportStore.importFromFile(picked.path);
       expect(counts['day_result'], greaterThanOrEqualTo(1));
       final restored = await db.query(
         'day_result',
@@ -779,7 +781,7 @@ void main() {
       final snapshot = await LocalDb.exportCopy();
       await db.delete('day_result', where: 'day_id = ?', whereArgs: [dayId]);
 
-      await LocalDb.importFromDbFile(snapshot);
+      await BackupImportStore.importFromFile(snapshot);
       expect(
         await db.query('day_result', where: 'day_id = ?', whereArgs: [dayId]),
         hasLength(1),

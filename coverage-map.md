@@ -39,7 +39,7 @@ and tests use these to check it or inspect state:
 - **Public forms of live paths:**
   - `LocalDb.close`, `counts` and `tableNames`;
   - `thinRawArchiveBefore` (retention runs `_thinRawArchiveVia`);
-  - `putObservation`, `putWorkoutSplits` and `insertRecordsBatch`;
+  - `ObservationStore.put`, `putWorkoutSplits` and `insertRecordsBatch`;
   - `packMediaBackup` (the app uses `packMediaBackupWithCount`);
   - `dayHrCeiling`, `BootstrapClockGate.needsCorrection` and `PreparedDerivationPayload.fromJson`;
   - `NoopImporter.stepRuns`/`decideRow` (moved to `NoopIngest`);

@@ -31,7 +31,7 @@ void main() {
       test(
         '${light ? 'Refresh' : 'Processing'} with ${profile ? 'saved' : 'absent'} profile releases a refused SQLite open and retries',
         () async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: '2021-04-06',
             algoVersion: 102,
             payloadJson: '{"scalars":{"rmssd":44}}',

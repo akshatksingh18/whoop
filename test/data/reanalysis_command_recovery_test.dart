@@ -18,7 +18,7 @@ void main() {
     app = AppState.forTesting();
     for (var i = 0; i < days.length; i++) {
       final day = days[i], start = localDayStartSec(days[i])!;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({
@@ -63,7 +63,7 @@ void main() {
     'COV-48 real reanalysis publishes day progress and coalesces a concurrent command',
     () async {
       final db = await LocalDb.instance;
-      final saved = [for (final day in days) await LocalDb.dayResult(day)];
+      final saved = [for (final day in days) await DayResultStore.read(day)];
       final raw = await db.query('decoded_onehz', orderBy: 'rec_ts');
       final series = await db.query('metric_series', orderBy: 'date,key');
       final events = <({bool busy, String progress})>[];
@@ -87,7 +87,7 @@ void main() {
       expect(app.reanalyzing, false);
       expect(app.reanalyzeProgress, '');
       expect(app.insightsRevision.value, revision + 1);
-      expect([for (final day in days) await LocalDb.dayResult(day)], saved);
+      expect([for (final day in days) await DayResultStore.read(day)], saved);
       expect(await db.query('decoded_onehz', orderBy: 'rec_ts'), raw);
       expect(await db.query('metric_series', orderBy: 'date,key'), series);
     },
@@ -97,7 +97,7 @@ void main() {
     'COV-48 failed reanalysis releases progress and retries without replacing saved nights',
     () async {
       final db = await LocalDb.instance;
-      final saved = [for (final day in days) await LocalDb.dayResult(day)];
+      final saved = [for (final day in days) await DayResultStore.read(day)];
       final raw = await db.query('decoded_onehz', orderBy: 'rec_ts');
       final revision = app.insightsRevision.value;
       await db.execute(
@@ -112,7 +112,7 @@ void main() {
           app.logLines.any((s) => s.contains('[derive] reanalyze failed:')),
           true,
         );
-        expect([for (final day in days) await LocalDb.dayResult(day)], saved);
+        expect([for (final day in days) await DayResultStore.read(day)], saved);
         expect(
           await db.query('authored_decoded_retained', orderBy: 'rec_ts'),
           raw,
@@ -126,7 +126,7 @@ void main() {
       expect(app.reanalyzing, false);
       expect(app.reanalyzeProgress, '');
       expect(app.insightsRevision.value, revision + 1);
-      expect([for (final day in days) await LocalDb.dayResult(day)], saved);
+      expect([for (final day in days) await DayResultStore.read(day)], saved);
       expect(await db.query('decoded_onehz', orderBy: 'rec_ts'), raw);
     },
   );

@@ -109,7 +109,7 @@ void main() {
         final original = await file.readAsBytes();
         final before = await evidence();
         await expectLater(
-          LocalDb.importFromDbFile(file.path),
+          BackupImportStore.importFromFile(file.path),
           throwsA(
             isA<DbImportException>()
                 .having((e) => e.records, 'committed records', 0)
@@ -132,7 +132,7 @@ void main() {
       final original = await file.readAsBytes();
       final before = await evidence();
       await expectLater(
-        LocalDb.importFromDbFile(file.path),
+        BackupImportStore.importFromFile(file.path),
         throwsA(
           isA<DbImportException>()
               .having((e) => e.records, 'committed records', 0)
@@ -160,7 +160,7 @@ void main() {
         final original = await file.readAsBytes();
         final before = await evidence();
         await expectLater(
-          LocalDb.importFromDbFile(file.path),
+          BackupImportStore.importFromFile(file.path),
           throwsA(
             isA<DbImportException>()
                 .having((e) => e.records, 'committed records', 0)
@@ -188,7 +188,7 @@ void main() {
         final file = await backup(pin: pin);
         final original = await file.readAsBytes();
         final before = await evidence();
-        await LocalDb.importFromDbFile(file.path);
+        await BackupImportStore.importFromFile(file.path);
         await retained(file, original, before);
       },
     );

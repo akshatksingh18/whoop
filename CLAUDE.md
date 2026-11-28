@@ -4,8 +4,8 @@ Akshat Kumar Singh's personal iPhone Flutter app:BLE → SQLite → on-device an
 No app backend,account,telemetry or LLM calls. Optional barcode/Maps requests disclose inputs
 to their providers;never imply zero network disclosure.
 
-**Status:** 100% handwritten Dart coverage is verified on main `b7b55f8e`, which holds the
-approved 3r app-dead removals. The large-file split is under way (todo.md), then the native
+**Status:** 100% handwritten Dart coverage is verified on main `71621b83`, which holds the
+approved 3r app-dead removals and the first `LocalDb` store splits. The large-file split is under way (todo.md), then the native
 migration. Use the worktree below; coverage-audit.md owns the proof.
 
 ## Files

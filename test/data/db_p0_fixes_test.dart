@@ -12,8 +12,8 @@
 //     and the whole page's RR beats vanished silently (no RMSSD/HRV).
 //  5. deleteDays never cascaded workout_route (deleteSession does), so a deleted
 //     GPS run left every lat/lng point on disk forever.
-//  8. importFromDbFile replayed decoded_onehz through a plain batch.insert,
-//     bypassing the orphan guard entirely.
+//  8. BackupImportStore.importFromFile replayed decoded_onehz through a plain
+//     batch.insert, bypassing the orphan guard entirely.
 // 10. day/night counts are answered in SQL, never by decoding payloads. (Their
 //     one caller, getRecords, has since stopped asking for them at all — the
 //     helpers stay because a payload-free count is the shape any future one
@@ -276,7 +276,7 @@ void main() {
 
   // ── fix 8 ────────────────────────────────────────────────────────────────
   test(
-    'importFromDbFile merges a LEGACY (counter-keyed, no rec_ts) decoded export '
+    'BackupImportStore.importFromFile merges a LEGACY (counter-keyed, no rec_ts) decoded export '
     'cleanly under the rec_ts key — foreign-wins, no stranded beats',
     () async {
       final db = await LocalDb.instance;
@@ -379,7 +379,7 @@ void main() {
       }
       await src.close();
 
-      await LocalDb.importFromDbFile(srcPath);
+      await BackupImportStore.importFromFile(srcPath);
 
       // Foreign wins the rec_ts collision; the other two seconds are untouched.
       final onehz = await db.query('decoded_onehz', orderBy: 'rec_ts ASC');
@@ -452,7 +452,7 @@ void main() {
         for (var i = 0; i < n; i++) _sample(dayStart + i, 90000 + i, [800]),
       ],
     );
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: dayId,
       algoVersion: 41,
       payloadJson: '{"exported":true}',

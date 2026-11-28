@@ -3,9 +3,9 @@
 // substrate, so a day that came from one must never set the median a personal
 // z-score is taken against.
 //
-// The law was enforced on the WRITE path only (`LocalDb.isMeasuredDay` stops an
-// import overwriting a measured day) and not on the READ path, so imported days
-// were feeding the readiness/illness baselines in shipped code.
+// The law was enforced on the WRITE path only (`DayProvenanceStore.isMeasured`
+// stops an import overwriting a measured day) and not on the READ path, so
+// imported days were feeding the readiness/illness baselines in shipped code.
 //
 // The trap this test pins down is the OTHER direction. `metric_series_version.
 // source` only exists from schema v43 and is never retro-filled, so every day
@@ -22,7 +22,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// A day this device derived from 1 Hz records.
 Future<void> _measured(String date, double rhr, {String? source = 'band'}) =>
-    LocalDb.putDayResult(
+    DayResultStore.put(
       dayId: date,
       algoVersion: 1,
       payloadJson: '{"date":"$date"}',
@@ -39,7 +39,7 @@ Future<void> _imported(
   String date,
   double rhr, {
   String? source = 'whoop_export',
-}) => LocalDb.putDayResult(
+}) => DayResultStore.put(
   dayId: date,
   algoVersion: 1,
   payloadJson: '{"date":"$date","imported":true,"source":"whoop_export"}',
@@ -124,7 +124,10 @@ void main() {
     await _imported('2026-04-03', 71, source: null); // pre-v43 import
     await _measured('2026-04-04', 51, source: null); // pre-v43 band day
 
-    expect(await LocalDb.importedDates(), {'2026-04-02', '2026-04-03'});
+    expect(await DayProvenanceStore.importedDates(), {
+      '2026-04-02',
+      '2026-04-03',
+    });
   });
 
   test(

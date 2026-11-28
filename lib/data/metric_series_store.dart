@@ -67,11 +67,11 @@ abstract final class MetricSeriesStore {
   /// A long-format metric series (oldest first) for trends/sparklines.
   ///
   /// [measuredOnly] drops days another vendor's export wrote (see
-  /// [importedDates]). OFF by default: a trend line is a picture of the user's
-  /// history and imported days belong in it. Turn it ON for anything that
-  /// COMPUTES against the series — a baseline, a personal percentile, a
-  /// seed-versus-band comparison — where a foreign algorithm's output is not
-  /// the same measurement.
+  /// [DayProvenanceStore.importedDates]). OFF by default: a trend line is a
+  /// picture of the user's history and imported days belong in it. Turn it ON
+  /// for anything that COMPUTES against the series — a baseline, a personal
+  /// percentile, a seed-versus-band comparison — where a foreign algorithm's
+  /// output is not the same measurement.
   static Future<List<Map<String, dynamic>>> series(
     String key, {
     int? limit,
@@ -82,7 +82,7 @@ abstract final class MetricSeriesStore {
       'metric_series',
       where:
           'key = ? AND value IS NOT NULL'
-          '${measuredOnly ? ' AND date NOT IN (${LocalDb._importedDatesSql})' : ''}',
+          '${measuredOnly ? ' AND date NOT IN (${DayProvenanceStore._importedDatesSql})' : ''}',
       whereArgs: [key],
       orderBy: 'date ASC',
       limit: limit,
@@ -95,9 +95,10 @@ abstract final class MetricSeriesStore {
   /// metric_series is keyed `(date, key)` with REPLACE, there is exactly one row
   /// per day, so the result is inherently de-duplicated.
   ///
-  /// [measuredOnly] defaults ON here, unlike [series]: this helper exists
-  /// to build a rolling baseline, and a baseline blended with another vendor's
-  /// derived numbers is not a baseline of this person (see [importedDates]).
+  /// [measuredOnly] defaults ON here, unlike [series]: this helper exists to
+  /// build a rolling baseline, and a baseline blended with another vendor's
+  /// derived numbers is not a baseline of this person (see
+  /// [DayProvenanceStore.importedDates]).
   static Future<List<double>> trailingValues(
     String key,
     int n, {
@@ -107,7 +108,7 @@ abstract final class MetricSeriesStore {
     final rows = await db.rawQuery(
       'SELECT value FROM metric_series '
       'WHERE key = ? AND value IS NOT NULL '
-      '${measuredOnly ? 'AND date NOT IN (${LocalDb._importedDatesSql}) ' : ''}'
+      '${measuredOnly ? 'AND date NOT IN (${DayProvenanceStore._importedDatesSql}) ' : ''}'
       'ORDER BY date DESC LIMIT ?',
       [key, n],
     );

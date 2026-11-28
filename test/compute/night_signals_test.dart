@@ -33,7 +33,7 @@ void main() {
   });
 
   Future<void> day(String id, Map<String, Object?> series) =>
-      LocalDb.putDayResult(
+      DayResultStore.put(
         dayId: id,
         algoVersion: kAlgoVersion,
         windowJson: '{}',

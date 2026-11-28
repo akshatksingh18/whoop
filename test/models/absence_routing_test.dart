@@ -24,7 +24,7 @@ import 'package:whoop_companion/data/local_repository_impl.dart';
 import 'package:whoop_companion/models/metric.dart';
 
 Future<void> _put(String day, Map<String, dynamic> payload) =>
-    LocalDb.putDayResult(
+    DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(payload),

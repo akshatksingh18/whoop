@@ -52,7 +52,7 @@ void main() {
         expect(await engine.run(profile, force: true), 2);
         expect(engine.running, false);
         for (final day in [first, second]) {
-          final row = (await LocalDb.dayResult(day))!;
+          final row = (await DayResultStore.read(day))!;
           expect(row['skipped'], 0);
           expect(row['partial'], 0);
           // This short fixture supplies a staging observation without a usable

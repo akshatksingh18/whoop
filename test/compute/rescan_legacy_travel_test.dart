@@ -27,7 +27,7 @@ void main() {
           'tz_travel_guard',
           jsonEncode({'offset_min': nowOffset + jump}),
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: '{"scalars":{"rhr":57}}',
@@ -47,7 +47,7 @@ void main() {
           'device_family': 'gen4',
         });
         final guard = await MetricSeriesStore.baseline('tz_travel_guard');
-        final result = await LocalDb.dayResult(day);
+        final result = await DayResultStore.read(day);
         final samples = await db.query('decoded_onehz');
         final series = await db.query('metric_series');
         final logs = <String>[];
@@ -62,7 +62,7 @@ void main() {
           expect(engine.running, isFalse);
           expect(await CursorStore.read('baseline_sig'), previousSignature);
           expect(await MetricSeriesStore.baseline('tz_travel_guard'), guard);
-          expect(await LocalDb.dayResult(day), result);
+          expect(await DayResultStore.read(day), result);
           expect(await db.query('decoded_onehz'), samples);
           expect(await db.query('metric_series'), series);
         }

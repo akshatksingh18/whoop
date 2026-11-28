@@ -78,7 +78,7 @@ void main() {
         SharedPreferences.resetStatic();
         await Prefs.ensureLoaded();
         Future<int>? wipe;
-        final restore = LocalDb.importFromDbFile(source.path);
+        final restore = BackupImportStore.importFromFile(source.path);
         final outcome = reset
             ? expectLater(
                 restore,
@@ -113,7 +113,7 @@ void main() {
             );
             expect(store.values[HeldMirror.key], isNull);
             expect(DayClock.days, isEmpty);
-            await LocalDb.importFromDbFile(source.path);
+            await BackupImportStore.importFromFile(source.path);
           }
           expect(
             (await JournalStore.entries(date: day)).single['note'],

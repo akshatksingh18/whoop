@@ -6,12 +6,13 @@
 //   27360 free bytes and 26KB until OOM, target footprint 268435456, growth
 //   limit 268435456", with `current_screen: ImportScreen`.
 //
-// `importFromDbFile` read each source table with ONE unbounded `src.query(t)`,
-// and `exportDaysDb`'s `copyRawRange` read a whole day of `decoded_onehz` in
-// one statement. sqflite serialises an entire result set into Java objects
-// BEFORE any of it crosses the platform channel, so a full-history
-// `decoded_onehz` (86,400 rows per day) had to fit on the 256 MB Dalvik heap
-// all at once — and was then held live for the duration of the insert loop.
+// `BackupImportStore.importFromFile` read each source table with ONE unbounded
+// `src.query(t)`, and `exportDaysDb`'s `copyRawRange` read a whole day of
+// `decoded_onehz` in one statement. sqflite serialises an entire result set
+// into Java objects BEFORE any of it crosses the platform channel, so a
+// full-history `decoded_onehz` (86,400 rows per day) had to fit on the 256 MB
+// Dalvik heap all at once — and was then held live for the duration of the
+// insert loop.
 //
 // Both are now keyset-paged on rowid at 2000 rows. These tests drive row counts
 // ACROSS several page boundaries (and off-by-one around them) to prove paging
@@ -106,7 +107,7 @@ void main() {
     await db.delete('decoded_onehz');
   }
 
-  group('importFromDbFile pages the source without losing rows', () {
+  group('BackupImportStore.importFromFile pages the source without losing rows', () {
     // Straddle the boundary from both sides plus a clean multiple, which is
     // where an off-by-one cursor (`rowid >=` instead of `>`, or stopping on a
     // full final page) shows up.
@@ -122,7 +123,7 @@ void main() {
         const startTs = 1786100000;
         await buildSource(rows, startTs: startTs);
 
-        final counts = await LocalDb.importFromDbFile(srcPath);
+        final counts = await BackupImportStore.importFromFile(srcPath);
         expect(
           counts['decoded_onehz'],
           rows,
@@ -170,8 +171,8 @@ void main() {
       final rows = kPageSize + 500;
       await buildSource(rows, startTs: 1786200000);
 
-      await LocalDb.importFromDbFile(srcPath);
-      await LocalDb.importFromDbFile(srcPath);
+      await BackupImportStore.importFromFile(srcPath);
+      await BackupImportStore.importFromFile(srcPath);
 
       final db = await LocalDb.instance;
       final n = (await db.rawQuery(
@@ -198,7 +199,7 @@ void main() {
       await clearLocal();
       await buildSource(10, startTs: 1786400000);
 
-      final counts = await LocalDb.importFromDbFile(srcPath);
+      final counts = await BackupImportStore.importFromFile(srcPath);
 
       expect(counts['decoded_onehz'], 10, reason: 'present tables still copy');
       expect(
@@ -213,7 +214,7 @@ void main() {
     test('an empty source table reports zero and writes nothing', () async {
       await clearLocal();
       await buildSource(0, startTs: 1786300000);
-      final counts = await LocalDb.importFromDbFile(srcPath);
+      final counts = await BackupImportStore.importFromFile(srcPath);
       expect(counts['decoded_onehz'], 0);
       final db = await LocalDb.instance;
       expect(
@@ -233,7 +234,7 @@ void main() {
       final startTs =
           DateTime.utc(2026, 5, 14, 2).millisecondsSinceEpoch ~/ 1000;
       await buildSource(rows, startTs: startTs);
-      await LocalDb.importFromDbFile(srcPath);
+      await BackupImportStore.importFromFile(srcPath);
 
       final db = await LocalDb.instance;
       final localDay = (await db.rawQuery(
@@ -282,70 +283,73 @@ void main() {
     });
   });
 
-  group('importFromDbFile applies the v46 data rule at the seam', () {
-    test('a pre-v46 backup cannot reinstate the retired columns', () async {
-      await clearLocal();
-      // A pre-v46 export: rows still carry the disproven on_wrist/hr_valid
-      // values and the -50.00 °C skin-temp error sentinel. The v46 migration
-      // only runs on version bumps, so the import seam is the ONLY line of
-      // defence for these rows.
-      await databaseFactory.deleteDatabase(srcPath);
-      final src = await databaseFactory.openDatabase(srcPath);
-      await src.execute('''
+  group(
+    'BackupImportStore.importFromFile applies the v46 data rule at the seam',
+    () {
+      test('a pre-v46 backup cannot reinstate the retired columns', () async {
+        await clearLocal();
+        // A pre-v46 export: rows still carry the disproven on_wrist/hr_valid
+        // values and the -50.00 °C skin-temp error sentinel. The v46 migration
+        // only runs on version bumps, so the import seam is the ONLY line of
+        // defence for these rows.
+        await databaseFactory.deleteDatabase(srcPath);
+        final src = await databaseFactory.openDatabase(srcPath);
+        await src.execute('''
         CREATE TABLE decoded_onehz (
           rec_ts INTEGER PRIMARY KEY, counter INTEGER NOT NULL,
           hr INTEGER, skin_temp_c REAL, on_wrist INTEGER, hr_valid INTEGER)
       ''');
-      await src.insert('decoded_onehz', {
-        'rec_ts': 1786200000,
-        'counter': 1,
-        'hr': 62,
-        'skin_temp_c': -50.0, // the unavailable/error sentinel
-        'on_wrist': 1,
-        'hr_valid': 1,
-      });
-      await src.insert('decoded_onehz', {
-        'rec_ts': 1786200001,
-        'counter': 2,
-        'hr': 63,
-        'skin_temp_c': 30.57, // a real reading must survive untouched
-        'on_wrist': 1,
-        'hr_valid': 0,
-      });
-      await src.close();
+        await src.insert('decoded_onehz', {
+          'rec_ts': 1786200000,
+          'counter': 1,
+          'hr': 62,
+          'skin_temp_c': -50.0, // the unavailable/error sentinel
+          'on_wrist': 1,
+          'hr_valid': 1,
+        });
+        await src.insert('decoded_onehz', {
+          'rec_ts': 1786200001,
+          'counter': 2,
+          'hr': 63,
+          'skin_temp_c': 30.57, // a real reading must survive untouched
+          'on_wrist': 1,
+          'hr_valid': 0,
+        });
+        await src.close();
 
-      await LocalDb.importFromDbFile(srcPath);
+        await BackupImportStore.importFromFile(srcPath);
 
-      final db = await LocalDb.instance;
-      final rows = await db.rawQuery(
-        'SELECT rec_ts, hr, skin_temp_c, on_wrist, hr_valid '
-        'FROM decoded_onehz WHERE rec_ts IN (1786200000, 1786200001) '
-        'ORDER BY rec_ts',
-      );
-      expect(rows, hasLength(2));
-      expect(rows[0]['hr'], 62, reason: 'the honest fields import normally');
-      expect(
-        rows[0]['skin_temp_c'],
-        isNull,
-        reason: 'the -50.00 °C sentinel is an absence, not a temperature',
-      );
-      expect(
-        rows[1]['skin_temp_c'],
-        closeTo(30.57, 1e-9),
-        reason: 'a real reading is not collateral damage',
-      );
-      for (final r in rows) {
+        final db = await LocalDb.instance;
+        final rows = await db.rawQuery(
+          'SELECT rec_ts, hr, skin_temp_c, on_wrist, hr_valid '
+          'FROM decoded_onehz WHERE rec_ts IN (1786200000, 1786200001) '
+          'ORDER BY rec_ts',
+        );
+        expect(rows, hasLength(2));
+        expect(rows[0]['hr'], 62, reason: 'the honest fields import normally');
         expect(
-          r['on_wrist'],
+          rows[0]['skin_temp_c'],
           isNull,
-          reason: 'no honest writer exists for on_wrist',
+          reason: 'the -50.00 °C sentinel is an absence, not a temperature',
         );
         expect(
-          r['hr_valid'],
-          isNull,
-          reason: 'no honest writer exists for hr_valid',
+          rows[1]['skin_temp_c'],
+          closeTo(30.57, 1e-9),
+          reason: 'a real reading is not collateral damage',
         );
-      }
-    });
-  });
+        for (final r in rows) {
+          expect(
+            r['on_wrist'],
+            isNull,
+            reason: 'no honest writer exists for on_wrist',
+          );
+          expect(
+            r['hr_valid'],
+            isNull,
+            reason: 'no honest writer exists for hr_valid',
+          );
+        }
+      });
+    },
+  );
 }

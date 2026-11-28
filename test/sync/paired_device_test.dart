@@ -40,7 +40,7 @@ void main() {
   setUp(() async {
     SharedPreferences.setMockInitialValues({});
     // Both copies, or one test's pairing steers the next one's.
-    await LocalDb.deleteDevice();
+    await DeviceStore.delete();
   });
 
   test('save/load round-trips remoteId, serial and generation', () async {
@@ -109,7 +109,7 @@ void main() {
   // seeding one without deleting the row tests nothing.
   test('a corrupted stored generation never steers the route', () async {
     // The authoritative copy: a junk `adapter_id` on the device row.
-    await LocalDb.upsertDevice(
+    await DeviceStore.upsert(
       adapterId: 'banana',
       remoteId: 'AA:BB:CC:DD:EE:FF',
       label: '5AG0000001',
@@ -126,7 +126,7 @@ void main() {
     );
 
     // The mirror, with no row for the table branch to answer from.
-    await LocalDb.deleteDevice();
+    await DeviceStore.delete();
     SharedPreferences.setMockInitialValues({
       'paired_remote_id': 'AA:BB:CC:DD:EE:FF',
       'paired_generation': 'banana',
@@ -135,11 +135,11 @@ void main() {
     expect(p!.remoteId, 'AA:BB:CC:DD:EE:FF');
     expect(p.generation, isNull);
     // The heal that just ran must not have written the junk through either.
-    expect((await LocalDb.deviceRow())?['adapter_id'], isNull);
+    expect((await DeviceStore.row())?['adapter_id'], isNull);
   });
 
   test('a notify-only adapter id is not a band generation', () async {
-    await LocalDb.upsertDevice(
+    await DeviceStore.upsert(
       adapterId: 'ble_hrs',
       remoteId: 'AA:BB:CC:DD:EE:FF',
       tier: 'wristOptical',
@@ -171,7 +171,7 @@ void main() {
       isNull,
       reason: 'the forget stands — neither copy may be written back',
     );
-    expect((await LocalDb.deviceRow())?['remote_id'], isNull);
+    expect((await DeviceStore.row())?['remote_id'], isNull);
   });
 
   // ...and it keeps winning as the forget slides later into that flight.
@@ -189,7 +189,7 @@ void main() {
     () async {
       for (var hops = 0; hops < 14; hops++) {
         SharedPreferences.setMockInitialValues({});
-        await LocalDb.deleteDevice();
+        await DeviceStore.delete();
         await PairedDevice.save(
           'AA:BB:CC:DD:EE:FF',
           '5AG0000001',
@@ -280,7 +280,7 @@ void main() {
         'paired_serial': '5AG0000001',
         'paired_generation': 'gen5',
       });
-      await LocalDb.deleteDevice();
+      await DeviceStore.delete();
 
       final healing = PairedDevice.load();
       final forget = PairedDevice.clear();
@@ -291,7 +291,7 @@ void main() {
         isNull,
         reason: 'the heal must not put the forgotten band back',
       );
-      expect((await LocalDb.deviceRow())?['remote_id'], isNull);
+      expect((await DeviceStore.row())?['remote_id'], isNull);
     },
   );
 

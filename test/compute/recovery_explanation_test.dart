@@ -82,7 +82,7 @@ void main() {
       'resp_history': [for (var i = 0; i < 28; i++) 14.0 + (i % 3) * .1],
       'tst_history': [for (var i = 0; i < 28; i++) 400.0 + i % 7],
     };
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(later),
@@ -150,7 +150,7 @@ void main() {
       expect((await repo.getChart('recovery'))['points'].last['v'], 80);
       expect(
         jsonDecode(
-          (await LocalDb.dayResult(day))!['payload_json'] as String,
+          (await DayResultStore.read(day))!['payload_json'] as String,
         )['scalars']['readiness'],
         56,
         reason: 'the retained day and scientific score are not rewritten',
@@ -177,7 +177,7 @@ void main() {
     'a previous day uses its own saved explanation while that pin still supplies its chart point',
     () async {
       day = dayLabelOf(DateTime.parse(day).subtract(const Duration(days: 1)));
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode(later),
@@ -197,7 +197,7 @@ void main() {
       final oldDay = dayLabelOf(
         DateTime.parse(day).subtract(const Duration(days: 1)),
       );
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: oldDay,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode(original),
@@ -245,7 +245,7 @@ void main() {
       try {
         await LocalDb.wipeAll();
         expect(await FrozenHeadlineStore.read(), isNull);
-        await LocalDb.importFromDbFile(path);
+        await BackupImportStore.importFromFile(path);
         expect(await CursorStore.read(FrozenHeadlineStore.kCursorKey), before);
         expect((await FrozenHeadlineStore.read())!.value, 80);
         expect(
@@ -270,7 +270,7 @@ void main() {
       (later['clinical'] as Map)['rmssd_sleep_session'] = {
         'note': 'need_sleep',
       };
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode(later),

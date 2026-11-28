@@ -51,7 +51,7 @@ void main() {
               await MetricSeriesStore.putValue(d, entry.key, entry.value);
             }
           }
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({'date': day, 'series': {}}),

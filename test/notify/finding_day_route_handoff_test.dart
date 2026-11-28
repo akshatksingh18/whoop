@@ -31,7 +31,7 @@ void main() {
         (t) async {
           const original = '2021-04-07', prior = '2021-04-06';
           for (final day in [prior, original]) {
-            await LocalDb.putDayResult(
+            await DayResultStore.put(
               dayId: day,
               algoVersion: kAlgoVersion,
               payloadJson: jsonEncode({'date': day}),

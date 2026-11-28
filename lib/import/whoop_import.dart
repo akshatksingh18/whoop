@@ -199,11 +199,13 @@ class WhoopImporter {
 
     // NEVER clobber a real derived day: a returning user with months of band
     // data importing their WHOOP export used to have every overlapping day's
-    // payload and scalars replaced by the vendor's numbers — and
-    // `finalized: true` then locked the day so DerivationEngine could never
-    // rebuild it from raw. The guard now lives in LocalDb so the other three
-    // import paths share it rather than each forgetting it.
-    if (await LocalDb.isMeasuredDay(date)) return _DayWrite.keptExisting;
+    // payload and scalars replaced by the vendor's numbers — and `finalized:
+    // true` then locked the day so DerivationEngine could never rebuild it from
+    // raw. The guard now lives in DayProvenanceStore so the other three import
+    // paths share it rather than each forgetting it.
+    if (await DayProvenanceStore.isMeasured(date)) {
+      return _DayWrite.keptExisting;
+    }
 
     num? n(List<String> names) => double.tryParse(get(names));
     final recovery = n(['recovery score %', 'recovery score']);
@@ -316,7 +318,7 @@ class WhoopImporter {
     };
 
     double? d(num? v) => v?.toDouble();
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: date,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(bundle),

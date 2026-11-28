@@ -20,7 +20,7 @@ void main() {
     'COV-48 ordinary thin-input derive retains a richer prior night verbatim',
     () async {
       final ts = localDayStartSec(day)! + 43200;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({
@@ -45,7 +45,7 @@ void main() {
         Sample(tsEpoch: ts, counter: 1, hr: 60, ax: 0, ay: 0, az: 1),
       );
       final db = await LocalDb.instance;
-      final before = await LocalDb.dayResult(day);
+      final before = await DayResultStore.read(day);
       final series = await db.query('metric_series', orderBy: 'date,key');
       final raw = await db.query('decoded_onehz');
       final logs = <String>[];
@@ -67,7 +67,7 @@ void main() {
         logs.any((s) => s.contains('second half') && s.contains('failed')),
         false,
       );
-      expect(await LocalDb.dayResult(day), before);
+      expect(await DayResultStore.read(day), before);
       expect(await db.query('metric_series', orderBy: 'date,key'), series);
       expect(await db.query('decoded_onehz'), raw);
       expect(engine.running, false);
@@ -99,7 +99,7 @@ void main() {
         final curve = [
           {'t': ts - 60, 'v': 70.0},
         ];
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: previous.$1,
           payloadJson: jsonEncode({
@@ -144,7 +144,7 @@ void main() {
             true,
           );
           expect(logs.any((s) => s.contains('carried the previous')), true);
-          final row = (await LocalDb.dayResult(day))!;
+          final row = (await DayResultStore.read(day))!;
           final bundle = SeriesCodec.decodePayloadJson(
             row['payload_json'] as String,
           )!;
@@ -188,7 +188,7 @@ void main() {
           1,
           reason: logs.join('\n'),
         );
-        final retried = (await LocalDb.dayResult(day))!;
+        final retried = (await DayResultStore.read(day))!;
         expect(retried['partial'], 0);
         expect(retried['skipped'], 0);
         expect(retried['finalized'], 0);

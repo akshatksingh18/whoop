@@ -42,7 +42,7 @@ void main() {
     await db.delete('day_result');
     final today = todayLabel();
     final yesterday = _label(DateTime.now().subtract(const Duration(days: 1)));
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: yesterday,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
@@ -55,7 +55,7 @@ void main() {
       }),
       windowJson: '{}',
     );
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: today,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({

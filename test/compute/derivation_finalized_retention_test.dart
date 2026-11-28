@@ -20,7 +20,7 @@ void main() {
         final db = await LocalDb.instance;
         for (var i = 0; i < days.length; i++) {
           final ts = localDayStartSec(days[i])! + 12 * 3600;
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: days[i],
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

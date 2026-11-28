@@ -90,7 +90,7 @@ void main() {
           expect(stored.floorG, greaterThan(0));
           expect(stored.floorG, isNot(.04));
         }
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         expect(row['partial'], 0);
         expect(row['finalized'], 1);
         final b = SeriesCodec.decodePayloadJson(row['payload_json'] as String)!;

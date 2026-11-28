@@ -23,7 +23,7 @@ class HighFreqWakeWindow {
   static const int minSamples = 3;
 
   static Future<HighFreqWakePlan> planNow([DateTime? now]) async {
-    final rows = await LocalDb.recentDayResults(historyDays);
+    final rows = await DayResultStore.recent(historyDays);
     return planFromRows(rows, now ?? DateTime.now());
   }
 

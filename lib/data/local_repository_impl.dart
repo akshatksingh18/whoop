@@ -55,7 +55,7 @@ class LocalRepositoryImpl extends LocalRepository {
 
   /// Decode a day_result row's payload bundle (latest algo_version), or null.
   Future<Map<String, dynamic>?> _bundle(String date) async {
-    final row = await LocalDb.dayResult(date);
+    final row = await DayResultStore.read(date);
     if (row == null) return null;
     final b = _decode(row['payload_json']);
     return b == null ? null : {...b, 'date': row['day_id']};
@@ -70,7 +70,7 @@ class LocalRepositoryImpl extends LocalRepository {
   /// scalars → newest decodable → null. This is what makes Today show yesterday's
   /// data when today hasn't filled yet (and the day-detail seams inherit it).
   Future<Map<String, dynamic>?> _latestBundle() async {
-    final rows = await LocalDb.recentDayResults(14);
+    final rows = await DayResultStore.recent(14);
     Map<String, dynamic>? newest, withScalars;
     for (final row in rows) {
       final decoded = _decode(row['payload_json']);
@@ -224,10 +224,10 @@ class LocalRepositoryImpl extends LocalRepository {
     // An IMPORTED day carries only what the export file carried, and no gate in
     // this app ever ran on it — there is no raw to re-derive from, so this is
     // not a wait-and-it-fills absence. The payload says so itself
-    // (`LocalDb.isMeasuredDayRow` reads the same flag), so this is a fact about
-    // the row, not a plausible reason invented for it. Measured: 284 of
-    // whoop-5's 287 days are this, and every activity slot on all of them went
-    // absent with nothing to say.
+    // (`DayProvenanceStore.isMeasuredRow` reads the same flag), so this is a
+    // fact about the row, not a plausible reason invented for it. Measured: 284
+    // of whoop-5's 287 days are this, and every activity slot on all of them
+    // went absent with nothing to say.
     if (b?['imported'] == true) return needInputNote('imported_day');
     return null;
   }
@@ -274,7 +274,7 @@ class LocalRepositoryImpl extends LocalRepository {
     // A day commits before the whole derive pass finishes. Read its payload and
     // timestamp together: a later background cancellation can leave the
     // aggregate freshness row behind this already-durable result.
-    final todayRow = await LocalDb.dayResult(todayDay);
+    final todayRow = await DayResultStore.read(todayDay);
     final todayPayload = _decode(todayRow?['payload_json']);
     final todayBundle =
         todayRow?['skipped'] == 1 || todayPayload?['skipped'] == true
@@ -834,7 +834,7 @@ class LocalRepositoryImpl extends LocalRepository {
   }
 
   @override
-  Future<List<String>> availableDays() => LocalDb.availableDayIds();
+  Future<List<String>> availableDays() => DayResultStore.availableDayIds();
 
   @override
   Future<Map<String, dynamic>> getDaySleep(String date) => _daySleep(date);
@@ -1714,7 +1714,7 @@ class LocalRepositoryImpl extends LocalRepository {
     int days = 60,
     String? before,
   }) async {
-    final rows = await LocalDb.sleepWindowRows(days, before: before);
+    final rows = await DayResultStore.sleepWindowRows(days, before: before);
     final out = <Map<String, dynamic>>[];
     for (final r in rows) {
       final date = r['day_id'] as String?;
@@ -3648,7 +3648,7 @@ class LocalRepositoryImpl extends LocalRepository {
           DateTime(d.year, d.month, d.day),
     ]..sort();
     final overlay = <Map<String, dynamic>>[];
-    final derived = await LocalDb.recentDayResults(120);
+    final derived = await DayResultStore.recent(120);
     if (derived.isNotEmpty) {
       // recentDerivedDays is newest-first; coverline wants oldest-first.
       final ordered = derived.reversed.toList();

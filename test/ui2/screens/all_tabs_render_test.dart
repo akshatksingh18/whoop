@@ -763,7 +763,7 @@ void main() {
           'overnight_state': 'missing',
         }),
       );
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: today,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({
@@ -772,14 +772,14 @@ void main() {
         windowJson: '{}',
       );
       // No end-of-pass refresh: a background expiration may stop the next day.
-      final row = await LocalDb.dayResult(today);
+      final row = await DayResultStore.read(today);
       final repo = LocalRepositoryImpl(getProfileMap: () => _profile);
       final result = await repo.getToday();
       expect(result['status']['activity_state'], 'ready');
       expect(result['status']['activity_computed_at'], row!['computed_at']);
       expect(result['daily']['strain']['value'], 4.2);
       // A future-version sibling cannot replace the current build's result.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: today,
         algoVersion: kAlgoVersion + 1,
         payloadJson: jsonEncode({

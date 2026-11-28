@@ -332,7 +332,7 @@ void main() {
     /// zone edges are named after. `decoded_onehz` is pruned at ~3 days, so the
     /// derived day is where it survives.
     Future<void> seedStampedDay({Map<String, dynamic> extra = const {}}) =>
-        LocalDb.putDayResult(
+        DayResultStore.put(
           dayId: todayLabel(),
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({'device_family': 'gen4', ...extra}),
@@ -380,7 +380,7 @@ void main() {
       await MetricSeriesStore.putValue('2026-08-09', 'hr_ceiling_bpm', 176);
       await seedStampedDay();
       // The day that set it carries the envelope with the session behind it.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-08-03',
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({

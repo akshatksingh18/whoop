@@ -29,7 +29,7 @@ void main() {
           ..repo = LocalRepositoryImpl(getProfileMap: () => {});
         addTearDown(app.dispose);
         final db = await LocalDb.instance;
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson:

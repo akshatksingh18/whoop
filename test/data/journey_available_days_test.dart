@@ -31,7 +31,7 @@ void main() {
   });
 
   Future<void> seedDerived(String dayId, {int algoVersion = 15}) =>
-      LocalDb.putDayResult(
+      DayResultStore.put(
         dayId: dayId,
         algoVersion: algoVersion,
         payloadJson: jsonEncode({
@@ -44,7 +44,7 @@ void main() {
   // A derivation skip-marker, exactly as `_markDaySkipped` writes it: the
   // `skipped` column set alongside the `{skipped:true}` payload.
   Future<void> seedSkip(String dayId, {int algoVersion = 15}) =>
-      LocalDb.putDayResult(
+      DayResultStore.put(
         dayId: dayId,
         algoVersion: algoVersion,
         payloadJson: jsonEncode({'skipped': true, 'reason': 'test'}),
@@ -93,7 +93,7 @@ void main() {
       final rawDay = dayLabelOf(DateTime(2099, 1, 4, 12));
       expect(rawDay, '2099-01-04');
 
-      final days = await LocalDb.availableDayIds();
+      final days = await DayResultStore.availableDayIds();
 
       // Exactly the three genuine derived days, newest → oldest.
       expect(days, ['2099-01-05', '2099-01-03', '2099-01-01']);
@@ -112,7 +112,7 @@ void main() {
       // '2099-01-03' already has a derived row; adding raw seconds must not
       // duplicate it (and must not resurrect anything via a raw path).
       await seedRawSecond(DateTime(2099, 1, 3, 12), 990003);
-      final days = await LocalDb.availableDayIds();
+      final days = await DayResultStore.availableDayIds();
       expect(days.where((d) => d == '2099-01-03').length, 1);
     },
   );
@@ -126,7 +126,7 @@ void main() {
     await seedSkip('2099-02-11', algoVersion: 15);
     await seedDerived('2099-02-11', algoVersion: 16);
 
-    final days = await LocalDb.availableDayIds();
+    final days = await DayResultStore.availableDayIds();
     expect(days.contains('2099-02-10'), isFalse);
     expect(days.contains('2099-02-11'), isTrue);
   });
@@ -151,7 +151,7 @@ void main() {
 
     // Raw seconds alone (no derived day_result) must NOT make a day available.
     await seedRawSecond(DateTime(2099, 3, 1, 12), 991001);
-    final days = await LocalDb.availableDayIds();
+    final days = await DayResultStore.availableDayIds();
     expect(days, isEmpty);
 
     await LocalDb.close();

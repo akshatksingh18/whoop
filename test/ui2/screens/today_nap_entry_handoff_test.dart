@@ -31,7 +31,7 @@ void main() {
           DateTime(parsed.year, parsed.month, parsed.day - 2),
         );
         for (final day in [older, today]) {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

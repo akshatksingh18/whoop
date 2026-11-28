@@ -78,7 +78,7 @@ void main() {
             ),
           );
         }
-        await LocalDb.upsertDevice(adapterId: 'gen4');
+        await DeviceStore.upsert(adapterId: 'gen4');
         await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
         const report = '[derive] rescored 1 session(s) from substrate';
         final revision = app.insightsRevision.value;

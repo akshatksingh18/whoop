@@ -44,7 +44,7 @@ void main() {
         final older = todayLabel(
           DateTime.now().subtract(const Duration(days: 10)),
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: older,
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({
@@ -55,14 +55,14 @@ void main() {
           rmssd: 41,
           finalized: true,
         );
-        final banked = await LocalDb.dayResult(older);
+        final banked = await DayResultStore.read(older);
         final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
         expect(
           dayLabelAtSec(ts),
           date,
           reason: 'this authored fixture requires a current local day input',
         );
-        await LocalDb.upsertDevice(adapterId: 'gen4');
+        await DeviceStore.upsert(adapterId: 'gen4');
         await LocalDb.insertRecord(
           RawRecord(
             counter: 1,
@@ -101,7 +101,7 @@ void main() {
           await _drain(app);
           expect(app.insightsRevision.value, greaterThan(revision));
           expect(notice, contains('Band not connected'));
-          expect(await LocalDb.dayResult(older), banked);
+          expect(await DayResultStore.read(older), banked);
           expect(await LocalDb.lastDecodedRecTs(), ts);
           if (refusedTable != null) {
             expect(
@@ -110,7 +110,7 @@ void main() {
                 'Some totals could not be calculated. Please try again.',
               ),
             );
-            final failed = await LocalDb.dayResult(date);
+            final failed = await DayResultStore.read(date);
             if (failed != null) {
               expect(failed['skipped'], 1);
               expect(failed['finalized'], 0);
@@ -125,7 +125,7 @@ void main() {
           } else {
             expect(notice, 'Band not connected');
           }
-          final current = (await LocalDb.dayResult(date))!;
+          final current = (await DayResultStore.read(date))!;
           expect(current['skipped'], 0);
           expect(current['finalized'], 0);
           expect(current['rmssd'], isNull);
@@ -142,7 +142,7 @@ void main() {
             isNot(date),
             reason: 'today must not inherit a recovery score from one HR point',
           );
-          expect(await LocalDb.dayResult(older), banked);
+          expect(await DayResultStore.read(older), banked);
           expect(await LocalDb.lastDecodedRecTs(), ts);
         } finally {
           await db.execute(

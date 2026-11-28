@@ -35,7 +35,7 @@ void main() {
       testWidgets(
         'retained ${item.key} without contribution keeps dated navigation at ${scale}x',
         (t) async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: 99,
             payloadJson: jsonEncode({

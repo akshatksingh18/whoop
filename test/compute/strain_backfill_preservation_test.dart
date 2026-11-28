@@ -19,7 +19,7 @@ void main() {
       const malformed = '2021-04-05';
       const missingScalars = '2021-04-06';
       const recent = '2021-04-20';
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: withoutBundle,
         algoVersion: 62,
         payloadJson: '{}',
@@ -39,7 +39,7 @@ void main() {
         for (var minute = 0; minute < 50; minute++) {'t': minute * 60, 'v': 8},
       ];
       for (final day in [malformed, missingScalars, recent]) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: 62,
           payloadJson: jsonEncode({

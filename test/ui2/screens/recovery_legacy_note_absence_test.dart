@@ -34,7 +34,7 @@ void main() {
             key: {'value': true, 'baseline_n': 4},
         };
         final db = (await t.runAsync(() async {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: 99,
             payloadJson: jsonEncode({'readiness_absent_diag': diag}),

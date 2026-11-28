@@ -63,7 +63,7 @@ void main() {
     'an unreadable recovery-ready guard skips the push only',
     () async {
       final date = todayLabel();
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: date,
         algoVersion: kAlgoVersion,
         finalized: true,
@@ -92,7 +92,7 @@ void main() {
           ),
           hasLength(1),
         );
-        expect((await LocalDb.dayResult(date))!['readiness'], 72);
+        expect((await DayResultStore.read(date))!['readiness'], 72);
       } finally {
         app.dispose();
         await app.engine.disconnect();

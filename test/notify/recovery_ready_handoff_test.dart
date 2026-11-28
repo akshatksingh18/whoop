@@ -46,14 +46,14 @@ void main() {
           } else {
             payload[field] = wrong;
           }
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: date,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode(payload),
             windowJson: '{}',
             readiness: 72,
           );
-          final before = await LocalDb.dayResult(date);
+          final before = await DayResultStore.read(date);
           await ComputeFreshnessStore.refresh();
           final row = (await ComputeFreshnessStore.read('today'))!;
           final state = jsonDecode(row['payload_json'] as String) as Map;
@@ -73,7 +73,7 @@ void main() {
             false,
             reason: 'unreadable detail is not a decided no-sleep night',
           );
-          expect(await LocalDb.dayResult(date), before);
+          expect(await DayResultStore.read(date), before);
         },
       );
     }
@@ -103,7 +103,7 @@ void main() {
                         },
                 },
         });
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: kAlgoVersion,
           finalized: true,
@@ -111,7 +111,7 @@ void main() {
           windowJson: '{}',
           readiness: kind == 'missing-score' ? null : 72,
         );
-        final before = await LocalDb.dayResult(date);
+        final before = await DayResultStore.read(date);
         final app = _App()
           ..user = {'age': 30, 'sex': 'f', 'weight_kg': 70, 'height_cm': 170};
         app.repo = LocalRepositoryImpl(getProfileMap: () => app.user);
@@ -172,7 +172,7 @@ void main() {
             await runQueued();
             expect(events, hasLength(count));
           }
-          expect(await LocalDb.dayResult(date), before);
+          expect(await DayResultStore.read(date), before);
           final freshness =
               jsonDecode(
                     (await ComputeFreshnessStore.read('today'))!['payload_json']

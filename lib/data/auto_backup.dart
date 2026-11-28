@@ -24,8 +24,8 @@
 // plaintext automatic path any more: with no stored passphrase a run reports
 // [BackupOutcome.needsPassphrase] and writes nothing. The snapshot is gzipped
 // BEFORE sealing — roughly a third of the bytes through the ~1.5 MB/s pure-Dart
-// AES-GCM — and `LocalDb.importFromDbFile` already inflates gzip by magic
-// bytes, so the existing encrypted-restore path opens these unchanged.
+// AES-GCM — and `BackupImportStore.importFromFile` already inflates gzip by
+// magic bytes, so the existing encrypted-restore path opens these unchanged.
 //
 // VERIFIED BEFORE PUBLISHED. A sealed file is decrypted again (GCM tag and
 // all) and compared before it gets its final name, so a published backup is

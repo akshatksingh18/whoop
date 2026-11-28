@@ -169,7 +169,7 @@ void main() {
     await seedCycleLog('2026-06-01', 'start');
     await seedCycleLog('2026-07-01', 'start');
     for (final d in ['2026-05-30', '2026-06-05', '2026-07-05']) {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: d,
         algoVersion: 41,
         payloadJson: '{"scalars":{"rhr":52.0}}',
@@ -205,14 +205,14 @@ void main() {
           ? '{"scalars":{}}'
           : '{"sleep":{"accounting":{"value":{"tst_sec":$tstSec}}}}';
 
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-01-01',
         algoVersion: 41,
         payloadJson: bundle(21600),
         windowJson: '{}',
         series: const {'rhr': 52.0},
       );
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-01-02',
         algoVersion: 41,
         payloadJson: '<<truncated write>>', // not JSON at all

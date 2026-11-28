@@ -210,7 +210,7 @@ void main() {
       expect(progress.last, 1);
       expect(app.insightsRevision.value, greaterThan(before));
       expect(NutritionDb.revision.value, greaterThan(food));
-      final row = (await LocalDb.dayResult('2026-01-02'))!;
+      final row = (await DayResultStore.read('2026-01-02'))!;
       expect(
         (jsonDecode(row['payload_json'] as String) as Map)['source'],
         'whoop_export',
@@ -250,7 +250,7 @@ void main() {
     'database restore restores readings and exposes a day count separate from row count',
     () async {
       await BodyLogDb.putWeight('2026-01-02', 70, 'kg', historyOnly: true);
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-01-02',
         algoVersion: kAlgoVersion,
         payloadJson:
@@ -673,7 +673,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 80));
       expect(app.paired, isNull);
       expect(await PairedDevice.load(), isNull);
-      expect((await LocalDb.deviceRow())?['adapter_id'], 'gen4');
+      expect((await DeviceStore.row())?['adapter_id'], 'gen4');
       expect(app.strapName, 'Synthetic band');
       app.paired = PairedDevice('synthetic-band', null);
       app.engine.onState(s);
@@ -686,7 +686,7 @@ void main() {
   test(
     'full reanalysis without raw releases the busy state and does not replace saved history',
     () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-01-02',
         algoVersion: kAlgoVersion,
         payloadJson:
@@ -698,7 +698,7 @@ void main() {
       expect(app.reanalyzing, isFalse);
       expect(app.reanalyzeProgress, '');
       expect(
-        (await LocalDb.dayResult('2026-01-02'))?['payload_json'],
+        (await DayResultStore.read('2026-01-02'))?['payload_json'],
         contains('whoop_export'),
       );
       expect(await MetricSeriesStore.valueOn('2026-01-02', 'rhr'), 55);
@@ -719,7 +719,7 @@ void main() {
       () async {
         const days = ['2021-04-06', '2021-04-07'];
         for (var i = 0; i < days.length; i++) {
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: days[i],
             algoVersion: kAlgoVersion,
             payloadJson:
@@ -796,7 +796,7 @@ void main() {
       'nap rebuild $refusal refusal keeps the durable correction for retry',
       () async {
         const day = '2021-04-06';
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson:
@@ -888,7 +888,7 @@ void main() {
     test(
       'rebuild $refused refusal retains saved history and releases retry',
       () async {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: '2021-04-06',
           algoVersion: kAlgoVersion,
           payloadJson:

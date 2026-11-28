@@ -167,7 +167,7 @@ void main() {
         'key': 'readiness',
         'value': 50.0,
       });
-      await LocalDb.importFromDbFile(file);
+      await BackupImportStore.importFromFile(file);
       final rows = {
         for (final r in await db.query(
           'metric_series',

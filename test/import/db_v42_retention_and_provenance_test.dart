@@ -115,7 +115,7 @@ void main() {
 
   test('metric_series_version stamps the build that wrote the scalars', () async {
     await _useFreshDb('v42_series_version_test.db');
-    Future<void> put(String day, int v, double value) => LocalDb.putDayResult(
+    Future<void> put(String day, int v, double value) => DayResultStore.put(
       dayId: day,
       algoVersion: v,
       payloadJson: '{}',
@@ -135,7 +135,7 @@ void main() {
     expect(rows.last['algo_version'], 69);
 
     // A partial pass writes no scalars, so it must not claim the stamp either.
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: '2026-01-02',
       algoVersion: 99,
       payloadJson: '{}',
@@ -173,7 +173,7 @@ void main() {
       // And the law that outranks it: a writer that does not know its own
       // provenance writes NULL. Never retro-filled to 'band' — `csvField`
       // already renders NULL as empty, which is the honest cell.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-03-02',
         algoVersion: 41,
         payloadJson: '{}',
@@ -199,7 +199,7 @@ void main() {
         ('2026-03-02', 'gen4'),
         ('2026-03-03', 'gen5'),
       ]) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: d.$1,
           algoVersion: 76,
           payloadJson: '{}',
@@ -211,23 +211,29 @@ void main() {
       }
       // Foreign = not the newest stamped family. The gen5 night is the CURRENT
       // one, so the two gen4 nights are what a skin-temp baseline must drop.
-      expect(await LocalDb.foreignFamilyDates(), {'2026-03-01', '2026-03-02'});
+      expect(await DayProvenanceStore.foreignFamilyDates(), {
+        '2026-03-01',
+        '2026-03-02',
+      });
       // ...and only skin temp. RHR off a different WHOOP is the same quantity
       // measured slightly differently — masking it would delete real history to
       // fix a bias smaller than the window it is measured over.
-      expect(LocalDb.familySeamKeys, {'skin_temp_adc'});
+      expect(DayProvenanceStore.familySeamKeys, {'skin_temp_adc'});
 
       // A day with NO stamp is UNKNOWN, never foreign — every day written before
       // the column existed reads NULL, and dropping those would empty a real
       // user's baseline.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: '2026-03-04',
         algoVersion: 76,
         payloadJson: '{}',
         windowJson: '{}',
         series: {'rhr': 56},
       );
-      expect(await LocalDb.foreignFamilyDates(), isNot(contains('2026-03-04')));
+      expect(
+        await DayProvenanceStore.foreignFamilyDates(),
+        isNot(contains('2026-03-04')),
+      );
     },
   );
 
@@ -236,7 +242,7 @@ void main() {
     () async {
       await _useFreshDb('family_seam_single_test.db');
       for (final d in const ['2026-04-01', '2026-04-02']) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: d,
           algoVersion: 76,
           payloadJson: '{}',
@@ -246,7 +252,7 @@ void main() {
           series: {'skin_temp_adc': 30000},
         );
       }
-      expect(await LocalDb.foreignFamilyDates(), isEmpty);
+      expect(await DayProvenanceStore.foreignFamilyDates(), isEmpty);
     },
   );
 

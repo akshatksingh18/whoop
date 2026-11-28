@@ -35,7 +35,7 @@ void main() {
       final midnight = localDayStartSec(day)!;
       final onset = midnight - 3600;
       final wake = midnight + 7 * 3600;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({

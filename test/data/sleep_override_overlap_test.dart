@@ -75,7 +75,7 @@ void main() {
           expect(await app.reanalyzeAll(), 2);
           expect((await repo.getDaySleep(day))['sleep_source'], 'manual');
         }
-        final original = await LocalDb.dayResult(day);
+        final original = await DayResultStore.read(day);
         Future<void> expectAcceptedOrUnknownWithRecovery() async {
           final current = await repo.getDaySleep(day);
           expect(current['onset_ts'], anyOf(isNull, start + 1200));
@@ -179,11 +179,11 @@ void main() {
         await later;
         if (action == 'reset') {
           expect(await SleepOverrideStore.getOverride(day), isNull);
-          expect(await LocalDb.dayResult(day), isNull);
+          expect(await DayResultStore.read(day), isNull);
           expect(await LocalDb.lastDecodedRecTs(), isNull);
           expect(app.reanalyzing, false);
           await Future<void>.delayed(const Duration(milliseconds: 550));
-          expect(await LocalDb.dayResult(day), isNull);
+          expect(await DayResultStore.read(day), isNull);
           return;
         }
         if (action == 'background') {

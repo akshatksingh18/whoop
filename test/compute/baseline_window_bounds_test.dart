@@ -21,7 +21,7 @@ void main() {
           target.day + offset,
         ).toIso8601String().substring(0, 10);
         double value(int i) => key == 'rhr' ? 60.0 + i : 4.0 + i / 100;
-        Future<void> seed(String day, double v) => LocalDb.putDayResult(
+        Future<void> seed(String day, double v) => DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({

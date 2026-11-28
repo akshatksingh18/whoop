@@ -47,7 +47,7 @@ void main() {
   /// baseline `metric_series` fan-out. Exactly what months-old history looks
   /// like after its raw has been pruned.
   Future<void> seedGoodDay(String dayId, {bool finalized = true}) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: dayId,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
@@ -244,7 +244,7 @@ void main() {
             'an empty derive must never REPLACE the persisted scalars — '
             'putDayResult nulls every metric_series row for the date',
       );
-      final row = await LocalDb.dayResult(oldDay);
+      final row = await DayResultStore.read(oldDay);
       expect(row, isNotNull);
       expect(row!['skipped'], 0);
       expect((row['readiness'] as num?)?.toDouble(), 74.0);
@@ -264,11 +264,15 @@ void main() {
       // Nothing to protect here, so the row IS written — but it must stay
       // recomputable. Locking an all-absent row is what made the damage permanent.
       const freshDay = '2026-01-06';
-      expect(await LocalDb.dayResult(freshDay), isNull, reason: 'precondition');
+      expect(
+        await DayResultStore.read(freshDay),
+        isNull,
+        reason: 'precondition',
+      );
 
       await DerivationEngine().run(const Profile(), force: true);
 
-      final row = await LocalDb.dayResult(freshDay);
+      final row = await DayResultStore.read(freshDay);
       if (row != null) {
         expect(
           row['finalized'],
@@ -337,7 +341,7 @@ void main() {
       reason: 'timeout',
     );
 
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     expect(row!['skipped'], 0, reason: 'the good row is untouched');
     expect((row['readiness'] as num?)?.toDouble(), 74.0);
     expect(
@@ -358,14 +362,14 @@ void main() {
       dayEndSec - 3600, // data edge still inside the day
       reason: 'error',
     );
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     expect(row!['skipped'], 0);
     expect((row['rhr'] as num?)?.toDouble(), 52.0);
   });
 
   test('a skip marker IS written when there is no good row to lose', () async {
     const day = '2026-02-12';
-    expect(await LocalDb.dayResult(day), isNull, reason: 'precondition');
+    expect(await DayResultStore.read(day), isNull, reason: 'precondition');
     final dayEndSec = DateTime(2026, 2, 13).millisecondsSinceEpoch ~/ 1000;
     await DerivationEngine().debugMarkDaySkipped(
       day,
@@ -373,7 +377,7 @@ void main() {
       dayEndSec + 10 * 86400,
       reason: 'day_prepare_budget_exceeded',
     );
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     expect(row, isNotNull);
     expect(row!['skipped'], 1);
     // A STRUCTURAL failure still finalizes once aged out, so a pathological day
@@ -392,7 +396,7 @@ void main() {
         dayEndSec + 10 * 86400, // aged well past finalization
         reason: 'timeout',
       );
-      final row = await LocalDb.dayResult(day);
+      final row = await DayResultStore.read(day);
       expect(row!['skipped'], 1);
       expect(
         row['finalized'],
@@ -402,7 +406,7 @@ void main() {
             'pass at this algo version — permanently blank',
       );
       expect(
-        (await LocalDb.finalizedDayIds(kAlgoVersion)).contains(day),
+        (await DayResultStore.finalizedIds(kAlgoVersion)).contains(day),
         isFalse,
       );
     },
@@ -424,7 +428,7 @@ void main() {
       dayEndSec + 10 * 86400,
       reason: 'day_prepare_budget_exceeded',
     );
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     final payload = jsonDecode(row!['payload_json'] as String) as Map;
     expect(
       payload['reason'],
@@ -443,7 +447,7 @@ void main() {
     // on the first derive after a bump, the row offered for carry-forward
     // belongs to the version that is being replaced.
     const day = '2026-04-02';
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion - 1,
       payloadJson: jsonEncode({
@@ -462,7 +466,7 @@ void main() {
       series: const {'readiness': 74.0},
     );
 
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     expect(
       (row!['algo_version'] as num).toInt(),
       kAlgoVersion - 1,
@@ -590,7 +594,7 @@ void main() {
     'a night-substrate regression with NO existing result still writes',
     () async {
       const day = '2026-08-23';
-      expect(await LocalDb.dayResult(day), isNull, reason: 'precondition');
+      expect(await DayResultStore.read(day), isNull, reason: 'precondition');
       expect(
         DerivationEngine.nightSubstrateRegressed(
           sleepSubEmpty: true,

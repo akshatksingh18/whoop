@@ -17,7 +17,7 @@ void main() {
       final offset = wake.millisecondsSinceEpoch;
       final date = '2021-04-0${4 + i}';
       expect(
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: 90,
           payloadJson: invalid == 'malformed' && i == 2

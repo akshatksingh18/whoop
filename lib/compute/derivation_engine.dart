@@ -269,9 +269,9 @@ class _BaselineHistoryCache {
   /// LIMIT n`, i.e. the OLDEST n — the opposite of a trailing window); the
   /// trailing window is taken here, in Dart, per target day.
   ///
-  /// IMPORTED DAYS ARE EXCLUDED. `LocalDb.isMeasuredDay` kept another vendor's
-  /// export from OVERWRITING a measured day, but nothing kept it out of the
-  /// window on the way back in: a WHOOP or cloud import writes real
+  /// IMPORTED DAYS ARE EXCLUDED. `DayProvenanceStore.isMeasured` kept another
+  /// vendor's export from OVERWRITING a measured day, but nothing kept it out
+  /// of the window on the way back in: a WHOOP or cloud import writes real
   /// `metric_series` rows for `rhr`, `rmssd`, `readiness` and `resp_rate`, and
   /// this load read them like any other day. Their scores are a different
   /// algorithm's output over a different (or no) substrate, so blending them in
@@ -280,22 +280,23 @@ class _BaselineHistoryCache {
   /// history on day one and has nothing else in the window at all.
   ///
   /// The mask is taken ONCE per load and applied to every key, because the
-  /// query behind it scans day bundles (see [LocalDb.importedDates]).
+  /// query behind it scans day bundles (see
+  /// [DayProvenanceStore.importedDates]).
   ///
   /// A SECOND, NARROWER MASK rides along: days measured by a different BAND
-  /// FAMILY, applied only to [LocalDb.familySeamKeys]. That one is not about a
-  /// foreign algorithm — it is this app's own maths over a sensor whose units
-  /// differ (`skin_temp_adc` is a gen4 ADC count on one side of a strap swap
-  /// and a gen5 centi-degree on the other), so it is masked PER-METRIC rather
-  /// than blanket: a family seam that only makes a number noisier (RHR, RMSSD)
-  /// stays in the window. Empty for a user who has never changed generation,
-  /// which is why it moves no number today.
+  /// FAMILY, applied only to [DayProvenanceStore.familySeamKeys]. That one is
+  /// not about a foreign algorithm — it is this app's own maths over a sensor
+  /// whose units differ (`skin_temp_adc` is a gen4 ADC count on one side of a
+  /// strap swap and a gen5 centi-degree on the other), so it is masked
+  /// PER-METRIC rather than blanket: a family seam that only makes a number
+  /// noisier (RHR, RMSSD) stays in the window. Empty for a user who has never
+  /// changed generation, which is why it moves no number today.
   static Future<_BaselineHistoryCache> load() async {
-    final imported = await LocalDb.importedDates();
-    final foreignFamily = await LocalDb.foreignFamilyDates();
+    final imported = await DayProvenanceStore.importedDates();
+    final foreignFamily = await DayProvenanceStore.foreignFamilyDates();
     Future<List<_DatedValue>> hist(String key) async {
       final rows = await MetricSeriesStore.series(key);
-      final seam = LocalDb.familySeamKeys.contains(key)
+      final seam = DayProvenanceStore.familySeamKeys.contains(key)
           ? foreignFamily
           : const <String>{};
       final out = <_DatedValue>[];
@@ -665,7 +666,7 @@ class DerivationEngine {
         );
         return 0;
       }
-      final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      final finalized = await DayResultStore.finalizedIds(kAlgoVersion);
       // A user sleep override (manual / confirmed) must take effect even on a
       // FINALIZED (locked) day — it's the user's word. Force those back into the
       // todo set. (No-raw days are guarded in the per-day loop so we never
@@ -924,10 +925,10 @@ class DerivationEngine {
               intent['generation'] != expectedGeneration)) {
         continue;
       }
-      final current = await LocalDb.dayResult(dayId);
+      final current = await DayResultStore.read(dayId);
       if (current == null) continue;
       DeriveStop.check(stopGeneration);
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: dayId,
         algoVersion: kAlgoVersion,
         payloadJson: current['payload_json'] as String,
@@ -1019,7 +1020,7 @@ class DerivationEngine {
           );
 
     if (override == null && !freshCorrection) {
-      final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+      final finalized = await DayResultStore.finalizedIds(kAlgoVersion);
       if (finalized.contains(dayId)) {
         final cached = await SleepIntermediateStore.candidate(
           dayId,
@@ -1369,7 +1370,7 @@ class DerivationEngine {
   _storedSleepHistory({int days = 60, String? excludeDay}) async {
     final out = <({int startSec, int endSec, String dayKey})>[];
     try {
-      for (final r in await LocalDb.sleepWindowRows(days)) {
+      for (final r in await DayResultStore.sleepWindowRows(days)) {
         final dayKey = r['day_id'] as String?;
         if (dayKey == null || dayKey.isEmpty || dayKey == excludeDay) continue;
         final raw = r['window_json'];
@@ -1608,7 +1609,7 @@ class DerivationEngine {
       );
     }
 
-    final finalized = await LocalDb.finalizedDayIds(kAlgoVersion);
+    final finalized = await DayResultStore.finalizedIds(kAlgoVersion);
     var pending = [
       for (final day in rawDays)
         if (!finalized.contains(day)) day,
@@ -1970,7 +1971,7 @@ class DerivationEngine {
         // so importing a file that overlaps real history destroyed it
         // silently and permanently. Same guard the WHOOP importer has always
         // had; it just was not shared.
-        if (await LocalDb.isMeasuredDay(day.date)) {
+        if (await DayProvenanceStore.isMeasured(day.date)) {
           _log('import day ${day.date} kept (already measured on this device)');
           continue;
         }
@@ -2189,7 +2190,7 @@ class DerivationEngine {
         sleepSub.isEmpty &&
         (scMap == null || !scMap.values.any((v) => v != null));
     if (producedNothing) {
-      final existing = await LocalDb.dayResult(day.date);
+      final existing = await DayResultStore.read(day.date);
       if (_isRealDayResult(existing)) {
         _log(
           'derive ${day.date}: no substrate (raw pruned) — kept the '
@@ -2235,7 +2236,7 @@ class DerivationEngine {
                   scMap['rmssd'] == null &&
                   scMap['readiness'] == null),
         )) {
-      final existingNight = await LocalDb.dayResult(day.date);
+      final existingNight = await DayResultStore.read(day.date);
       final existingHadNight =
           existingNight != null &&
           (existingNight['rhr'] != null ||
@@ -2273,7 +2274,7 @@ class DerivationEngine {
     // `secondHalfOk` tracks whether this actually completed: a headline-only
     // row must be marked `partial` below so it never locks as finalized and
     // never counts as "derived" for the raw-pruning guard (see
-    // LocalDb.dayResultIds) — otherwise a transient failure here permanently
+    // DayResultStore.ids) — otherwise a transient failure here permanently
     // loses the ability to ever back-fill naps/workouts/HRR/wear/curves for
     // this day once its raw substrate is pruned.
     var secondHalfOk = true;
@@ -2557,7 +2558,7 @@ class DerivationEngine {
     var effectiveFinalized = finalized;
     var effectivePartial = !secondHalfOk;
     if (!secondHalfOk) {
-      final existing = await LocalDb.dayResult(day.date);
+      final existing = await DayResultStore.read(day.date);
       if (_isRealDayResult(existing)) {
         final prev = _decodeBundle(existing!['payload_json']);
         if (prev != null) {
@@ -2585,7 +2586,7 @@ class DerivationEngine {
         (bundle['scalars'] as Map?)?.cast<String, dynamic>() ?? const {};
     double? sc(String k) => (scalars[k] as num?)?.toDouble();
     DeriveStop.check(stopGen);
-    final published = await LocalDb.putDayResult(
+    final published = await DayResultStore.put(
       dayId: day.date,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(bundle),
@@ -2873,7 +2874,7 @@ class DerivationEngine {
   /// How a day should be filed after its second half failed and the previous
   /// result's detail was carried forward.
   ///
-  /// The version check is the subtle part. `LocalDb.dayResult` returns the
+  /// The version check is the subtle part. `DayResultStore.read` returns the
   /// HIGHEST algo_version stored for the day, so immediately after a bump the
   /// row it hands back belongs to the previous version. Carrying that detail
   /// forward still beats blanking the day — but it must not be filed as a
@@ -2930,7 +2931,7 @@ class DerivationEngine {
     required String reason,
   }) async {
     try {
-      final existing = await LocalDb.dayResult(dayId);
+      final existing = await DayResultStore.read(dayId);
       if (_isRealDayResult(existing)) {
         _log(
           'derive $dayId $reason — existing result kept (not overwritten '
@@ -2938,7 +2939,7 @@ class DerivationEngine {
         );
         return;
       }
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: dayId,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({'skipped': true, 'reason': reason}),
@@ -3025,7 +3026,7 @@ class DerivationEngine {
       final dates = (await SleepNapStore.correctionDays())
           .where((d) => d.compareTo(firstDate) >= 0 && d.compareTo(today) <= 0)
           .toList();
-      final rows = [for (final date in dates) await LocalDb.dayResult(date)];
+      final rows = [for (final date in dates) await DayResultStore.read(date)];
       DeriveStop.check(stopGen);
       final blocks = await _runIsolateCancellable(
         () {
@@ -3230,11 +3231,11 @@ class DerivationEngine {
     // hang (Crashlytics jank_watchdog), since every cross-day pass calls
     // this. _decodeBundle/_crossDayRecord are both static, so this whole
     // transform is isolate-safe.
-    final rows = await LocalDb.recentDayResults(_crossDayWindow);
+    final rows = await DayResultStore.recent(_crossDayWindow);
     final today = LocalDb.localDayLabelNow();
     // B88-11: another vendor's imported days are not this band's measurements;
     // tagged here so every cross-day consumer drops them.
-    final imported = await LocalDb.importedDates();
+    final imported = await DayProvenanceStore.importedDates();
     return _runIsolateCancellable(
       () {
         final days = <Map<String, dynamic>>[];
@@ -3675,7 +3676,7 @@ class DerivationEngine {
   ///     why a workout's average HR is written into the bundle (it was once
   ///     re-derived lazily and vanished the moment its substrate aged out).
   Future<void> _pruneOldDecoded(List<String> rawDayIds, int dataNowSec) async {
-    final derivedIds = await LocalDb.dayResultIds(kAlgoVersion);
+    final derivedIds = await DayResultStore.ids(kAlgoVersion);
     final cutoffSec = rawPruneCutoffSec(
       dataNowSec: dataNowSec,
       rawDayIds: rawDayIds,

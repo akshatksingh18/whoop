@@ -45,7 +45,7 @@ Future<int> seedContinuityNight(String day) async {
       ),
     );
   }
-  await LocalDb.upsertDevice(adapterId: 'gen4');
+  await DeviceStore.upsert(adapterId: 'gen4');
   await LocalDb.insertRecordsBatch(raws, samples);
   return start;
 }
@@ -76,13 +76,16 @@ void main() {
           expect(sleep['sleep_source'], source);
           expect(sleep['onset_ts'], start + onset);
           expect(sleep['wake_ts'], start + offset);
-          expect((await LocalDb.dayResult(day))!['algo_version'], kAlgoVersion);
+          expect(
+            (await DayResultStore.read(day))!['algo_version'],
+            kAlgoVersion,
+          );
           expect(app.reanalyzing, false);
         }
 
         await app.setSleepOverride(day, at(900), at(9900));
         await boundary(900, 9900, 'manual');
-        final old = await LocalDb.dayResult(day);
+        final old = await DayResultStore.read(day);
         final db = await LocalDb.instance;
         final rawCount = (await db.rawQuery(
           'SELECT COUNT(*) AS n FROM decoded_onehz',
@@ -98,7 +101,7 @@ void main() {
               (await SleepOverrideStore.getOverride(day))!['onset_ts'],
               start + 1200,
             );
-            final current = (await LocalDb.dayResult(day))!;
+            final current = (await DayResultStore.read(day))!;
             expect(current['rmssd'], isNull);
             expect(current['rhr'], isNull);
             expect(current['partial'], 1);
@@ -125,11 +128,11 @@ void main() {
         await app.confirmSleep(day);
         await boundary(1200, 9600, 'confirmed');
         final confirmed = await SleepOverrideStore.getOverride(day);
-        final saved = await LocalDb.dayResult(day);
+        final saved = await DayResultStore.read(day);
         final confirmedRevision = app.insightsRevision.value;
         await app.setSleepOverride(day, at(9600), at(1200));
         expect(await SleepOverrideStore.getOverride(day), confirmed);
-        expect(await LocalDb.dayResult(day), saved);
+        expect(await DayResultStore.read(day), saved);
         expect(app.insightsRevision.value, confirmedRevision);
         expect(
           (await db.rawQuery(
@@ -180,7 +183,7 @@ void main() {
         );
         expect(done, [day]);
         expect(engine.running, false);
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         expect(row['skipped'], 0);
         expect(row['partial'], 0);
         expect(row['algo_version'], kAlgoVersion);
@@ -239,7 +242,7 @@ void main() {
   test(
     'accepted correction outside the remaining raw span completes honestly',
     () async {
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: 100,
         payloadJson: '{"scalars":{"strain":8,"rmssd":44}}',
@@ -268,8 +271,8 @@ void main() {
       expect(intent['pending'], false);
       expect(intent['usable'], false);
       expect(intent['recovery'], recovery);
-      expect((await LocalDb.dayResult(day))!['rmssd'], isNull);
-      expect((await LocalDb.dayResult(day))!['partial'], 1);
+      expect((await DayResultStore.read(day))!['rmssd'], isNull);
+      expect((await DayResultStore.read(day))!['partial'], 1);
       expect(
         (await MetricSeriesStore.series(
           'strain',

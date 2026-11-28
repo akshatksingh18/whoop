@@ -42,7 +42,7 @@ void main() {
             'dip_pct': unusual ? 5 : 30.0 + i % 3,
             'tst_min': 420,
           };
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: day,
             algoVersion: kAlgoVersion,
             payloadJson: jsonEncode({

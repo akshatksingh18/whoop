@@ -103,7 +103,7 @@ void main() {
       );
       for (var i = 1; i <= 14; i++) {
         final date = dayLabelOf(DateTime.now().subtract(Duration(days: i)));
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: date,
           algoVersion: kAlgoVersion - 1,
           finalized: true,
@@ -233,7 +233,7 @@ void main() {
       await StepCoverageStore.replacePhoneForDay(today, [
         (startTs: currentTs, endTs: currentTs + 600, steps: 2000),
       ]);
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: day,
         algoVersion: kAlgoVersion - 1,
         windowJson: '{}',
@@ -683,7 +683,7 @@ void main() {
           await CalculationStore.read('profile.calculation_history'),
           isNull,
         );
-        await LocalDb.importFromDbFile(file);
+        await BackupImportStore.importFromFile(file);
         expect((await db.query('body_weight')).single['kg'], 72.5);
         expect((await MyFoods.meals(db)).single.label, 'Meal');
         expect(

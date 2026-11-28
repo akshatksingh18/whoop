@@ -58,7 +58,7 @@ void main() {
     Map<String, dynamic> sleepPeriods, {
     bool night = true,
   }) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: '2026-06-15',
       algoVersion: 1, // a pre-rename generation
       payloadJson: jsonEncode({

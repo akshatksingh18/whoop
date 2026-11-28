@@ -123,7 +123,7 @@ Future<StrainBackfillResult> backfillStrainScale({
   // pass. Read as ONE query so the loop below does not open a `day_result` row
   // just to close it again: this runs once per install-history, and the day
   // this fires is the launch right after an update.
-  final alreadyCurrent = await LocalDb.dayResultIds(kAlgoVersion);
+  final alreadyCurrent = await DayResultStore.ids(kAlgoVersion);
 
   for (final day in days) {
     if (day.compareTo(cutoff) >= 0) continue;
@@ -139,7 +139,7 @@ Future<StrainBackfillResult> backfillStrainScale({
       continue;
     }
 
-    final row = await LocalDb.dayResult(day);
+    final row = await DayResultStore.read(day);
     // A partial/skipped row at the current version is not in `alreadyCurrent`
     // but is still rescaled — same check as before, just reached less often.
     if (row != null &&
@@ -191,7 +191,7 @@ Future<StrainBackfillResult> backfillStrainScale({
     if (series is Map) series.remove('strain_curve');
 
     final partial = (row['partial'] as num?)?.toInt() == 1;
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: day,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode(payload),

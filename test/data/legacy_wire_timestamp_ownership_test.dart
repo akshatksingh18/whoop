@@ -31,7 +31,7 @@ void main() {
         );
         final sample = Sample(tsEpoch: own, counter: 1, hr: decoded.hr);
         expect(raw.recTs, isNull);
-        await LocalDb.upsertDevice(adapterId: 'gen4');
+        await DeviceStore.upsert(adapterId: 'gen4');
 
         Future<void> commit() =>
             SyncLedgerStore.commitBatch([raw], [sample], deviceFamily: 'gen4');

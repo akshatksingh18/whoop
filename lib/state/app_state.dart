@@ -319,7 +319,7 @@ class AppState extends ChangeNotifier {
   // (ui2/profile/data.dart) — both go through `runImport`, so there is one
   // router. Each runs against the engine + local profile, then notifies so
   // every screen re-reads the freshly imported days. None of them overwrites a
-  // day the band measured (LocalDb.isMeasuredDay).
+  // day the band measured (DayProvenanceStore.isMeasured).
 
   /// NOOP raw-sensor CSV → FULL 1 Hz re-derivation (memory-bounded streaming).
   Future<int> importNoopCsv(
@@ -386,13 +386,14 @@ class AppState extends ChangeNotifier {
   Future<int> importEdgeBackup(String path) async {
     importRollupError = null;
     lastImportRecords = 0;
-    // Gzipped auto-backups (`.db.gz`) are inflated INSIDE importFromDbFile —
-    // do not add it back here. Its inflate checks the gzip trailer, so a
-    // truncated backup fails loudly; `gzip.decoder` returns partial output
-    // without raising and would restore short while reporting success.
+    // Gzipped auto-backups (`.db.gz`) are inflated INSIDE
+    // BackupImportStore.importFromFile — do not add it back here. Its inflate
+    // checks the gzip trailer, so a truncated backup fails loudly;
+    // `gzip.decoder` returns partial output without raising and would restore
+    // short while reporting success.
     final Map<String, int> counts;
     try {
-      counts = await LocalDb.importFromDbFile(path);
+      counts = await BackupImportStore.importFromFile(path);
     } on DbImportException catch (e) {
       lastImportRecords = e.records;
       if (e.records > 0) {
@@ -1434,7 +1435,7 @@ class AppState extends ChangeNotifier {
   static const String _kLastRecoveryNotifDay = 'last_recovery_notif_day';
   Future<void> _maybeNotifyRecoveryReady() async {
     await _bestEffort('[notify] recovery-ready skipped', () async {
-      final row = await LocalDb.latestDayResult();
+      final row = await DayResultStore.latest();
       if (row == null) return;
       final dayId = (row['day_id'] ?? row['date'])?.toString();
       if (dayId == null || dayId.isEmpty) return;
@@ -2398,7 +2399,7 @@ class AppState extends ChangeNotifier {
     // Change-gated: this handler fires ~1 Hz during live HR.
     if (s.generation != null && s.generation != _lastSeenGeneration) {
       _lastSeenGeneration = s.generation;
-      unawaited(LocalDb.upsertDevice(adapterId: s.generation));
+      unawaited(DeviceStore.upsert(adapterId: s.generation));
     }
     if (s.strapName != _lastSeenStrapNameRaw) {
       _lastSeenStrapNameRaw = s.strapName;
@@ -2898,7 +2899,7 @@ class AppState extends ChangeNotifier {
   Future<void> _persistPaired(String remoteId, String? serial) async {
     // Which band this is, if the link has already said. Passed HERE and not at
     // the two call sites (`pairWith`, `pairViaAccessorySetup`) so neither can
-    // forget it — and COALESCE'd inside `upsertDevice`, so a null leaves
+    // forget it — and COALESCE'd inside `DeviceStore.upsert`, so a null leaves
     // whatever the row already knows.
     //
     // It is null on a FIRST pair, always: `DeviceState.generation` is only set

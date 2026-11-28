@@ -68,7 +68,7 @@ void main() {
     String day,
     Map<String, dynamic> payload, {
     Map<String, double?> series = const {},
-  }) => LocalDb.putDayResult(
+  }) => DayResultStore.put(
     dayId: day,
     algoVersion: kAlgoVersion,
     payloadJson: jsonEncode(payload),

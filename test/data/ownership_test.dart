@@ -104,57 +104,63 @@ void main() {
     );
   });
 
-  group('isMeasuredDay — the guard every importer must pass', () {
-    setUp(() async {
-      final db = await LocalDb.instance;
-      await db.delete('day_result');
-    });
+  group(
+    'DayProvenanceStore.isMeasured — the guard every importer must pass',
+    () {
+      setUp(() async {
+        final db = await LocalDb.instance;
+        await db.delete('day_result');
+      });
 
-    test('absent day is not measured', () async {
-      expect(await LocalDb.isMeasuredDay('2026-01-01'), isFalse);
-    });
+      test('absent day is not measured', () async {
+        expect(await DayProvenanceStore.isMeasured('2026-01-01'), isFalse);
+      });
 
-    test('a derived day IS measured, so an import must keep it', () async {
-      await LocalDb.putDayResult(
-        dayId: '2026-01-02',
-        algoVersion: 1,
-        payloadJson: '{"date":"2026-01-02"}',
-        windowJson: '{}',
-        finalized: true,
-        readiness: 61,
-      );
-      expect(await LocalDb.isMeasuredDay('2026-01-02'), isTrue);
-    });
+      test('a derived day IS measured, so an import must keep it', () async {
+        await DayResultStore.put(
+          dayId: '2026-01-02',
+          algoVersion: 1,
+          payloadJson: '{"date":"2026-01-02"}',
+          windowJson: '{}',
+          finalized: true,
+          readiness: 61,
+        );
+        expect(await DayProvenanceStore.isMeasured('2026-01-02'), isTrue);
+      });
 
-    test('a skip marker is not measured', () async {
-      await LocalDb.putDayResult(
-        dayId: '2026-01-03',
-        algoVersion: 1,
-        payloadJson: '{"skipped":true}',
-        windowJson: '{}',
-        skipped: true,
-      );
-      expect(await LocalDb.isMeasuredDay('2026-01-03'), isFalse);
-    });
+      test('a skip marker is not measured', () async {
+        await DayResultStore.put(
+          dayId: '2026-01-03',
+          algoVersion: 1,
+          payloadJson: '{"skipped":true}',
+          windowJson: '{}',
+          skipped: true,
+        );
+        expect(await DayProvenanceStore.isMeasured('2026-01-03'), isFalse);
+      });
 
-    test('a previous import is replaceable', () async {
-      await LocalDb.putDayResult(
-        dayId: '2026-01-04',
-        algoVersion: 1,
-        payloadJson: '{"imported":true,"source":"cloud_v2"}',
-        windowJson: '{}',
-        finalized: true,
-      );
-      expect(await LocalDb.isMeasuredDay('2026-01-04'), isFalse);
-    });
+      test('a previous import is replaceable', () async {
+        await DayResultStore.put(
+          dayId: '2026-01-04',
+          algoVersion: 1,
+          payloadJson: '{"imported":true,"source":"cloud_v2"}',
+          windowJson: '{}',
+          finalized: true,
+        );
+        expect(await DayProvenanceStore.isMeasured('2026-01-04'), isFalse);
+      });
 
-    test('present but unreadable is treated as real — never clobber', () {
-      expect(
-        LocalDb.isMeasuredDayRow({'payload_json': '{not json', 'skipped': 0}),
-        isTrue,
-      );
-    });
-  });
+      test('present but unreadable is treated as real — never clobber', () {
+        expect(
+          DayProvenanceStore.isMeasuredRow({
+            'payload_json': '{not json',
+            'skipped': 0,
+          }),
+          isTrue,
+        );
+      });
+    },
+  );
 
   test('every CSV export set runs, including the hand-entered ones', () async {
     final db = await LocalDb.instance;

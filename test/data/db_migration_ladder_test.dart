@@ -690,7 +690,7 @@ void main() {
     expect(health['ok'], isTrue, reason: '$health');
 
     // The ladder's real work still happened: derived_day carried across.
-    final migrated = await LocalDb.dayResult('2026-05-05');
+    final migrated = await DayResultStore.read('2026-05-05');
     expect(migrated, isNotNull);
     expect(migrated!['payload_json'], '{"legacy": true}');
 
@@ -1925,7 +1925,7 @@ void main() {
 
     // The device store exists, is empty, and is not silently absent from the
     // health check — the observation table's rung is the worked example.
-    expect(await LocalDb.deviceRow(), isNull);
+    expect(await DeviceStore.row(), isNull);
     expect(await (await LocalDb.instance).query('device'), isEmpty);
     final health = await DiagnosticsStore.schemaHealth();
     expect(health['ok'], isTrue, reason: '$health');
@@ -1948,7 +1948,7 @@ void main() {
     expect(paired?.serial, 'TEST00001');
     // …and the migration is a WRITE, not a read-through: the row is there for
     // everything that joins on `device_id` from here on.
-    final row = await LocalDb.deviceRow();
+    final row = await DeviceStore.row();
     expect(row?['remote_id'], 'AA:BB:CC:DD:EE:FF');
     expect(row?['label'], 'TEST00001');
     expect(row?['id'], LocalDb.kPrimaryDeviceId);
@@ -1959,6 +1959,6 @@ void main() {
     // Forgetting clears BOTH copies, or the mirror puts it straight back.
     await PairedDevice.clear();
     expect(await PairedDevice.load(), isNull);
-    expect(await LocalDb.deviceRow(), isNull);
+    expect(await DeviceStore.row(), isNull);
   });
 }

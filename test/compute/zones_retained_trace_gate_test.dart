@@ -12,7 +12,7 @@ import 'package:whoop_companion/data/local_repository_impl.dart';
 import '../support/coverage_store.dart';
 
 Future<void> _anchors() async {
-  await LocalDb.putDayResult(
+  await DayResultStore.put(
     dayId: todayLabel(),
     algoVersion: kAlgoVersion,
     payloadJson: jsonEncode({'device_family': 'gen4'}),

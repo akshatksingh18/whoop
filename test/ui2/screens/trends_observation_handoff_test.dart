@@ -40,7 +40,7 @@ void main() {
             'illness': {'state': 'red', 'date': day},
           }),
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: '{"scalars":{"rhr":64}}',
@@ -50,7 +50,7 @@ void main() {
           series: const {'rhr': 64},
         );
         final artifact = await MetricSeriesStore.baseline('crossday');
-        final result = await LocalDb.dayResult(day);
+        final result = await DayResultStore.read(day);
         final history = await MetricSeriesStore.series('rhr');
         final app = AppState.forTesting()
           ..repo = LocalRepositoryImpl(getProfileMap: () => {});
@@ -98,7 +98,7 @@ void main() {
         expect(review, findsNothing);
         expect(find.byType(HealthScreen), findsOneWidget);
         expect(await MetricSeriesStore.baseline('crossday'), artifact);
-        expect(await LocalDb.dayResult(day), result);
+        expect(await DayResultStore.read(day), result);
         expect(await MetricSeriesStore.series('rhr'), history);
       },
     );

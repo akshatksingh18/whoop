@@ -57,7 +57,7 @@ void main() {
       );
       final result = await WhoopImporter.importFiles([path]);
       expect(result.days, 1);
-      final row = (await LocalDb.dayResult('2021-04-06'))!;
+      final row = (await DayResultStore.read('2021-04-06'))!;
       final payload = jsonDecode(row['payload_json'] as String);
       final accounting = payload['sleep']['accounting']['value'] as Map;
       expect(accounting['tst_sec'], 420 * 60);

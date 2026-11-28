@@ -39,7 +39,7 @@ void main() {
     double rmssd = 50,
   }) async {
     final midnight = localDayStartSec(date)!;
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: date,
       algoVersion: kAlgoVersion,
       finalized: finalized,
@@ -91,7 +91,7 @@ void main() {
       );
       expect(await MetricSeriesStore.baseline('crossday'), isNull);
       expect(await engine.crossDayInputs(), isEmpty);
-      expect(await LocalDb.dayResult(label(0)), isNull);
+      expect(await DayResultStore.read(label(0)), isNull);
     },
   );
   for (final hasToday in [false, true]) {

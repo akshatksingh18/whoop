@@ -55,8 +55,8 @@ void main() {
             await old.close();
           }
           final bytes = await file.readAsBytes();
-          await LocalDb.importFromDbFile(file.path);
-          await LocalDb.importFromDbFile(file.path);
+          await BackupImportStore.importFromFile(file.path);
+          await BackupImportStore.importFromFile(file.path);
           return (file, bytes);
         }))!;
         final stored = (await t.runAsync(

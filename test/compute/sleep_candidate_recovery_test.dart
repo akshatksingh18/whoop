@@ -41,7 +41,7 @@ void main() {
             az: 1,
           ),
         );
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson: jsonEncode({'scalars': <String, dynamic>{}}),
@@ -91,7 +91,7 @@ void main() {
         } else {
           expect(after['payload_json'], isNot(original));
         }
-        final row = (await LocalDb.dayResult(day))!;
+        final row = (await DayResultStore.read(day))!;
         expect(row['skipped'], 0);
         expect(row['partial'], 0);
         expect(row['rhr'], isNull);

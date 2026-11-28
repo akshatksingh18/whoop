@@ -80,7 +80,7 @@ void main() {
             ),
           );
         }
-        await LocalDb.upsertDevice(adapterId: 'gen4');
+        await DeviceStore.upsert(adapterId: 'gen4');
         await SyncLedgerStore.commitBatch(raws, samples, deviceFamily: 'gen4');
         final app = App()
           ..user = {'age': 30, 'sex': 'f', 'weight_kg': 70, 'height_cm': 170};
@@ -102,7 +102,7 @@ void main() {
             await Future<void>.delayed(const Duration(milliseconds: 100));
           }
           expect(app.deriving || app.derivePending, false);
-          final row = await LocalDb.dayResult(date);
+          final row = await DayResultStore.read(date);
           expect(row, isNotNull);
           expect(row!['partial'], 0);
           expect(row['skipped'], 0);

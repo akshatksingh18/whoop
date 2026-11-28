@@ -24,7 +24,7 @@ void main() {
           todayLabel(DateTime(now.year, now.month, now.day - offset)),
       ];
       for (final day in days) {
-        await LocalDb.putDayResult(
+        await DayResultStore.put(
           dayId: day,
           algoVersion: kAlgoVersion,
           payloadJson:

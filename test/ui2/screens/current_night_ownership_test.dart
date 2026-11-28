@@ -33,7 +33,7 @@ void main() {
         d.day - 1,
         7,
       ).millisecondsSinceEpoch;
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: prior,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({
@@ -87,7 +87,7 @@ void main() {
               DateTime(d.year, d.month, d.day, 7).millisecondsSinceEpoch ~/
               1000;
           for (final day in [prior, today]) {
-            await LocalDb.putDayResult(
+            await DayResultStore.put(
               dayId: day,
               algoVersion: kAlgoVersion,
               payloadJson: jsonEncode({
@@ -132,7 +132,7 @@ void main() {
           );
           if (published) {
             expect(
-              await LocalDb.putDayResult(
+              await DayResultStore.put(
                 dayId: today,
                 algoVersion: kAlgoVersion,
                 payloadJson: jsonEncode({
@@ -154,7 +154,8 @@ void main() {
           final pin = await CursorStore.read(FrozenHeadlineStore.kCursorKey);
           final payload =
               jsonDecode(
-                    (await LocalDb.dayResult(today))!['payload_json'] as String,
+                    (await DayResultStore.read(today))!['payload_json']
+                        as String,
                   )
                   as Map;
           final reason = (payload['absent_notes'] as Map)['readiness'];

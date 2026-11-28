@@ -15,7 +15,7 @@ void main() {
   setUpAll(() => coverageStore('recovery-mover-store-boundaries'));
   setUp(resetCoverageStore);
   tearDownAll(LocalDb.close);
-  Future<void> imported(String day) => LocalDb.putDayResult(
+  Future<void> imported(String day) => DayResultStore.put(
     dayId: day,
     algoVersion: kAlgoVersion,
     payloadJson: jsonEncode({'source': 'whoop_export', 'imported': true}),

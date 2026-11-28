@@ -15,7 +15,7 @@ void main() {
   tearDownAll(LocalDb.close);
   const savedDay = '2021-04-06';
   Future<void> seed(List<String> pending) async {
-    await LocalDb.putDayResult(
+    await DayResultStore.put(
       dayId: savedDay,
       algoVersion: kAlgoVersion,
       payloadJson: jsonEncode({
@@ -79,7 +79,7 @@ void main() {
             hasLength(2),
           );
           expect(
-            await LocalDb.dayResult(adjacent),
+            await DayResultStore.read(adjacent),
             isNull,
             reason:
                 'An all-held scope must never fall back to the newest raw day',
@@ -93,7 +93,7 @@ void main() {
         // Includes an actual prepare/day worker: run this control in Linux CI.
         const held = '2021-04-07', independent = '2021-04-10';
         await seed([held, independent]);
-        final prior = await LocalDb.dayResult(savedDay);
+        final prior = await DayResultStore.read(savedDay);
         final guard = await MetricSeriesStore.baseline('tz_travel_guard');
         final completed = <String>[];
         final engine = DerivationEngine(background: true);
@@ -106,9 +106,9 @@ void main() {
           1,
         );
         expect(completed, [independent]);
-        expect(await LocalDb.dayResult(held), isNull);
-        expect(await LocalDb.dayResult(independent), isNotNull);
-        expect(await LocalDb.dayResult(savedDay), prior);
+        expect(await DayResultStore.read(held), isNull);
+        expect(await DayResultStore.read(independent), isNotNull);
+        expect(await DayResultStore.read(savedDay), prior);
         expect(await MetricSeriesStore.baseline('tz_travel_guard'), guard);
         expect(engine.running, false);
       },

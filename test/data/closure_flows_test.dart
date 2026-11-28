@@ -274,7 +274,7 @@ void main() {
           'source': 'foreign',
         });
         await src.close();
-        await LocalDb.importFromDbFile(path);
+        await BackupImportStore.importFromFile(path);
         expect((await db.query('day_result')).single['readiness'], 91);
         expect((await db.query('metric_series')).single['value'], 91);
         expect(

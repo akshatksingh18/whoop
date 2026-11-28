@@ -51,11 +51,8 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
 - [x] App-dead capability (Akshat approved all three groups): retired-feature remnants,
   superseded siblings and Gallery-only components are removed with their tests and Gallery
   entries; tests that only used a removed helper moved onto the live path (coverage-map.md).
-- [x] Re-prove 100% after the 3r removals: main `b7b55f8e` executes 48,380/48,380 (run
-  46076034921, every job green).
-- [ ] Re-prove 100% on the next publication: main `e04a7c13` executed 48,378/48,380, missing
-  only the clock-dependent `day_steps.dart` 471–472 that a tomorrow-dated test now covers;
-  main `c775d428` failed one Saturday-only test, now fixed (`coverage-audit.md`).
+- [x] Re-prove 100% after the 3r removals and the first `LocalDb` store splits: main
+  `71621b83` executes 48,386/48,386 (run 46098522214, every job green).
 - [ ] Decide the per-day data feature: `LocalDb.dataHistoryDays`/`exportDaysDb`/`deleteDays`
   are test-only now that the `AppState` wrappers are gone. Recommended: keep them until a
   per-day export or delete screen is wanted or rejected.
@@ -91,9 +88,12 @@ Ponytail/Impeccable are optional guidance,not prerequisites.
     (`MetricSeriesStore`), the freshness ledger (`ComputeFreshnessStore`), the legacy
     `day_result` re-encode walk (`SeriesReencodeStore`), the sleep-session candidates with
     wake-day features (`SleepIntermediateStore`), retention with space reclamation
-    (`StorageRetentionStore`), the frozen morning headline (`FrozenHeadlineStore`) and the
-    sync-cursor key/value store (`CursorStore`), each in
-    `lib/data/<name>_store.dart`; the rest move one concern per commit.
+    (`StorageRetentionStore`), the frozen morning headline (`FrozenHeadlineStore`), the
+    sync-cursor key/value store (`CursorStore`), the device table (`DeviceStore`), the
+    observation writes (`ObservationStore`), versioned `day_result` I/O (`DayResultStore`),
+    measured/imported day provenance (`DayProvenanceStore`) and the backup-file merge
+    (`BackupImportStore`),
+    each in `lib/data/<name>_store.dart`; the rest move one concern per commit.
   - `AppState` and `BleEngine` (instance classes, 17 and 21 statics): concern mixins in `part`
     files (`AppState extends ChangeNotifier with _SyncOps, _FoodOps, ...`), with no caller
     change.

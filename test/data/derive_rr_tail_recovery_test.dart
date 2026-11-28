@@ -128,7 +128,7 @@ void main() {
         '$mode coordinator retains $count leading/trailing R10 beats across a refused worker result and real retry',
         () async {
           final ts = await _seed(count), db = await LocalDb.instance;
-          await LocalDb.putDayResult(
+          await DayResultStore.put(
             dayId: _day,
             algoVersion: kAlgoVersion,
             payloadJson:
@@ -186,9 +186,9 @@ void main() {
             ),
             rr,
           );
-          expect((await LocalDb.dayResult(_day))!['rhr'], 55);
+          expect((await DayResultStore.read(_day))!['rhr'], 55);
           expect(
-            (await LocalDb.dayResult(_day))!['window_json'],
+            (await DayResultStore.read(_day))!['window_json'],
             '{"authored":"retain window"}',
           );
         },

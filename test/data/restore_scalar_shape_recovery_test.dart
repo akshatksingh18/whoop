@@ -56,7 +56,7 @@ Future<File> sourceFile(String shape) async {
     'readiness': 72,
   });
   await db.close();
-  await LocalDb.putDayResult(
+  await DayResultStore.put(
     dayId: kept,
     algoVersion: kAlgoVersion,
     payloadJson: '{"scalars":{"rhr":55}}',
@@ -65,7 +65,7 @@ Future<File> sourceFile(String shape) async {
     rhr: 55,
   );
   // Three usable days reach the real rollup;two honestly skip it.
-  await LocalDb.putDayResult(
+  await DayResultStore.put(
     dayId: '2021-04-02',
     algoVersion: kAlgoVersion,
     payloadJson: '{"scalars":{"rhr":59}}',
@@ -111,7 +111,7 @@ void main() {
           expect(await app.importEdgeBackup(file.path), 1);
           expect(app.lastImportRecords, 1);
           expect(app.importRollupError, isNull);
-          final restored = (await LocalDb.dayResult(date))!;
+          final restored = (await DayResultStore.read(date))!;
           expect(restored['payload_json'], expected['payload_json']);
           expect(restored['window_json'], expected['window_json']);
           expect(restored['computed_at'], expected['computed_at']);
@@ -177,7 +177,7 @@ void main() {
             greaterThanOrEqualTo(rollup.remove('built_at_epoch')),
           );
           expect(again, rollup);
-          expect(await LocalDb.dayResult(date), restored);
+          expect(await DayResultStore.read(date), restored);
           expect(await file.readAsBytes(), bytes);
           expect(await db.query('decoded_onehz'), isEmpty);
           expect(await db.query('raw_archive'), isEmpty);
@@ -198,7 +198,7 @@ void main() {
             final db = await LocalDb.instance;
             for (final (index, date) in [(1, older), (2, newer)]) {
               final ts = localDayStartSec(date)! + 12 * 3600;
-              await LocalDb.putDayResult(
+              await DayResultStore.put(
                 dayId: date,
                 algoVersion: kAlgoVersion,
                 payloadJson: jsonEncode({
@@ -245,7 +245,7 @@ void main() {
                 ),
               );
             }
-            final before = await LocalDb.dayResult(older);
+            final before = await DayResultStore.read(older);
             final series = await db.query(
               'metric_series',
               where: 'date=?',
@@ -300,7 +300,7 @@ void main() {
                 ),
               ),
             );
-            expect(await LocalDb.dayResult(older), before);
+            expect(await DayResultStore.read(older), before);
             expect(
               await db.query(
                 'metric_series',
@@ -324,7 +324,7 @@ void main() {
               await engine.run(const Profile(), heavy: true, force: true),
               1,
             );
-            expect(await LocalDb.dayResult(older), before);
+            expect(await DayResultStore.read(older), before);
             expect(await db.query('decoded_onehz'), latest);
             expect(engine.running, false);
           },

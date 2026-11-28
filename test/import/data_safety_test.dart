@@ -40,7 +40,7 @@ String _csv(Directory dir, String name, String energyHeader, String energy) {
   return f.path;
 }
 
-Future<Map<String, dynamic>?> _row(String day) => LocalDb.dayResult(day);
+Future<Map<String, dynamic>?> _row(String day) => DayResultStore.read(day);
 
 Future<double?> _metric(String day, String key) async {
   final db = await LocalDb.instance;
@@ -75,7 +75,7 @@ void main() {
   group('WhoopImporter never destroys a real derived day', () {
     test('skips a date that already holds a 1 Hz-derived day', () async {
       // A REAL derived day: no `imported` marker, real scalars.
-      await LocalDb.putDayResult(
+      await DayResultStore.put(
         dayId: _day,
         algoVersion: kAlgoVersion,
         payloadJson: jsonEncode({
